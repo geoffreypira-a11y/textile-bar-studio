@@ -305,7 +305,7 @@ function DraggableLogo({ slot, containerRef, onMove, onResize, isActive, onActiv
       width:`${currentW}%`, transform:"translate(-50%,-50%)",
       cursor:"grab", zIndex:isActive?20:10,
       filter:"drop-shadow(0 1px 5px rgba(0,0,0,0.65))",
-      outline:isActive?"2px dashed #F5B942":"none",
+      outline:isActive?"2px dashed #F5C518":"none",
       outlineOffset:3, borderRadius:3,
       userSelect:"none", touchAction:"none",
     };
@@ -320,14 +320,60 @@ function DraggableLogo({ slot, containerRef, onMove, onResize, isActive, onActiv
       transform:def.center?"translate(-50%,0)":"none",
       cursor:"grab", zIndex:isActive?20:10,
       filter:"drop-shadow(0 1px 5px rgba(0,0,0,0.65))",
-      outline:isActive?"2px dashed #F5B942":"none",
+      outline:isActive?"2px dashed #F5C518":"none",
       outlineOffset:3, borderRadius:3,
       userSelect:"none", touchAction:"none",
     };
   }
 
+  // ── CORNER RESIZE (drag coin — PC/tablette) ──────────────────
+  const resizing    = useRef(false);
+  const startResize = useRef({});
+  const divRef      = useRef(null);
+
+  const onCornerDown = (e) => {
+    e.stopPropagation(); e.preventDefault();
+    if (!containerRef.current) return;
+    resizing.current = true;
+    const rect = containerRef.current.getBoundingClientRect();
+    startResize.current = {
+      clientX: e.clientX, clientY: e.clientY,
+      startW: getCurrentW(), containerW: rect.width,
+      cx: cx ?? 50, cy: cy ?? 50,
+    };
+    window.addEventListener("pointermove", onCornerMove);
+    window.addEventListener("pointerup",   onCornerUp);
+  };
+
+  const onCornerMove = (e) => {
+    if (!resizing.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const dx   = e.clientX - startResize.current.clientX;
+    const dPct = (dx / rect.width) * 100 * 2;
+    const newW = Math.max(5, Math.min(80, startResize.current.startW + dPct));
+    onResize(slot.id, newW, startResize.current.cx, startResize.current.cy);
+  };
+
+  const onCornerUp = () => {
+    resizing.current = false;
+    window.removeEventListener("pointermove", onCornerMove);
+    window.removeEventListener("pointerup",   onCornerUp);
+  };
+
+  const handleStyle = (pos) => ({
+    position:"absolute", width:13, height:13,
+    background:"#F5C518", borderRadius:2,
+    border:"2px solid #111", cursor:"nwse-resize",
+    zIndex:40, pointerEvents:"all",
+    ...(pos==="br"?{bottom:-5,right:-5}:
+        pos==="bl"?{bottom:-5,left:-5}:
+        pos==="tr"?{top:-5,right:-5}:
+                   {top:-5,left:-5}),
+  });
+
   return (
     <div
+      ref={divRef}
       style={style}
       onPointerDown={onPointerDown}
       onTouchStart={onTouchStart}
@@ -335,26 +381,60 @@ function DraggableLogo({ slot, containerRef, onMove, onResize, isActive, onActiv
       onTouchEnd={onTouchEnd}
     >
       <img src={slot.image} alt="logo" style={{width:"100%",display:"block",pointerEvents:"none"}}/>
-      {isActive && (
+      {isActive && (<>
         <div style={{
           position:"absolute", top:-22, left:"50%", transform:"translateX(-50%)",
-          background:"#F5B942", color:"#111", fontSize:9, fontWeight:700,
+          background:"#F5C518", color:"#111", fontSize:9, fontWeight:700,
           padding:"2px 7px", borderRadius:3, whiteSpace:"nowrap", pointerEvents:"none",
           fontFamily:"'DM Sans',sans-serif", display:"flex", gap:6, alignItems:"center",
         }}>
           <span>☝️ Glisser</span>
           <span style={{opacity:0.6}}>|</span>
-          <span>🤏 Pincer pour redimensionner</span>
+          <span>🤏 Pincer / 🟡 Coin pour redimensionner</span>
         </div>
-      )}
+        {["tl","tr","bl","br"].map(pos=>(
+          <div key={pos} style={handleStyle(pos)} onPointerDown={onCornerDown}/>
+        ))}
+      </>)}
     </div>
   );
+}
+
+function GarmentCanvas({ maskSrc, shadowSrc, colorHex, isCustom, width=420, height=528 }) {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !maskSrc || !shadowSrc) return;
+    const ctx = canvas.getContext("2d");
+    canvas.width = width; canvas.height = height;
+    const mask = new Image(); mask.crossOrigin = "anonymous";
+    const shadow = new Image(); shadow.crossOrigin = "anonymous";
+    let loaded = 0;
+    const draw = () => {
+      ctx.clearRect(0, 0, width, height);
+      // 1. Dessiner le masque
+      ctx.drawImage(mask, 0, 0, width, height);
+      // 2. Coloriser avec source-in
+      ctx.globalCompositeOperation = "source-in";
+      ctx.fillStyle = colorHex;
+      ctx.fillRect(0, 0, width, height);
+      // 3. Superposer l'ombre
+      ctx.globalCompositeOperation = isCustom ? "multiply" : "source-over";
+      ctx.globalAlpha = isCustom ? 0.6 : 1.0;
+      ctx.drawImage(shadow, 0, 0, width, height);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1.0;
+    };
+    const onLoad = () => { loaded++; if (loaded === 2) draw(); };
+    mask.onload = onLoad; shadow.onload = onLoad;
+    mask.src = maskSrc; shadow.src = shadowSrc;
+  }, [maskSrc, shadowSrc, colorHex, isCustom, width, height]);
+  return <canvas ref={canvasRef} style={{ position:"absolute", inset:0, width:"100%", height:"100%", pointerEvents:"none" }}/>;
 }
 
 function PhotoMockup({ view, color, support, slots, onMoveSlot, onResizeSlot, activeSlotId, onActivateSlot, customSupports=[] }) {
   const containerRef = useRef(null);
   const tx = SUPPORTS[support]?.tex||"tshirt";
-  // Support custom (ajouté via Admin) : utilise ses propres images
   const customDef = customSupports.find(s=>s.id===support);
   const isCustom  = !!customDef;
   const maskSrc   = customDef?.masks?.[view]   || MASKS[tx]?.[view]   || MASKS.tshirt[view];
@@ -373,42 +453,12 @@ function PhotoMockup({ view, color, support, slots, onMoveSlot, onResizeSlot, ac
     }}
       onClick={() => onActivateSlot(null)}
     >
-      {/* Couleur clippée à la silhouette */}
-      <div style={{
-        position:"absolute", inset:0,
-        background: color.hex,
-        WebkitMaskImage:`url(${maskSrc})`,
-        maskImage:`url(${maskSrc})`,
-        WebkitMaskSize:"contain", maskSize:"contain",
-        WebkitMaskRepeat:"no-repeat", maskRepeat:"no-repeat",
-        WebkitMaskPosition:"center", maskPosition:"center",
-      }}/>
-
-      {/* Ombres / texture tissu
-          - Support statique  : image shadow PNG semi-transparent (normal)
-          - Support custom    : image originale clippée par le masque silhouette + multiply
-            → la couleur choisie transparaît, les détails de texture restent visibles */}
-      {isCustom ? (
-        <div style={{
-          position:"absolute", inset:0,
-          WebkitMaskImage:`url(${maskSrc})`,
-          maskImage:`url(${maskSrc})`,
-          WebkitMaskSize:"contain", maskSize:"contain",
-          WebkitMaskRepeat:"no-repeat", maskRepeat:"no-repeat",
-          WebkitMaskPosition:"center", maskPosition:"center",
-        }}>
-          <img src={shadowSrc} alt="" style={{
-            width:"100%", height:"100%",
-            objectFit:"contain", display:"block",
-            mixBlendMode:"multiply", opacity:0.6,
-          }}/>
-        </div>
-      ) : (
-        <img src={shadowSrc} alt="" style={{
-          position:"absolute", inset:0, width:"100%", height:"100%",
-          objectFit:"contain", display:"block", pointerEvents:"none",
-        }}/>
-      )}
+      <GarmentCanvas
+        maskSrc={maskSrc} shadowSrc={shadowSrc}
+        colorHex={color.hex} isCustom={isCustom}
+        width={isShoulder ? 394 : 420}
+        height={isShoulder ? 552 : 528}
+      />
 
       {/* Logos draggables */}
       {viewSlots.map(slot => {
@@ -431,9 +481,9 @@ function PhotoMockup({ view, color, support, slots, onMoveSlot, onResizeSlot, ac
       <div style={{
         position:"absolute", bottom:6, left:"50%", transform:"translateX(-50%)",
         background:"rgba(0,0,0,0.55)", backdropFilter:"blur(4px)",
-        color:"#F5B942", fontFamily:"'Bebas Neue',cursive", fontSize:10,
+        color:"#F5C518", fontFamily:"'Bebas Neue',cursive", fontSize:10,
         letterSpacing:2, padding:"2px 9px", borderRadius:3,
-        border:"1px solid #F5B94240", pointerEvents:"none", whiteSpace:"nowrap",
+        border:"1px solid #F5C51840", pointerEvents:"none", whiteSpace:"nowrap",
       }}>{ VIEW_LABELS[view]||view.toUpperCase()}</div>
     </div>
   );
@@ -482,9 +532,9 @@ function SlotCard({slot,index,onUpdate,onRemove,canRemove,support}){
   };
 
   return(
-    <div style={{background:"#12141C",borderRadius:10,overflow:"hidden",border:`1.5px solid ${slot.image?"#F5B942":"#262938"}`,transition:"border-color .2s"}}>
+    <div style={{background:"#12141C",borderRadius:10,overflow:"hidden",border:`1.5px solid ${slot.image?"#F5C518":"#262938"}`,transition:"border-color .2s"}}>
       <div style={{background:"#1C1F2A",padding:"9px 12px",display:"flex",alignItems:"center",gap:8}}>
-        <div style={{width:20,height:20,borderRadius:"50%",background:"#F5B942",color:"#111",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,flexShrink:0}}>{index+1}</div>
+        <div style={{width:20,height:20,borderRadius:"50%",background:"#F5C518",color:"#111",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,flexShrink:0}}>{index+1}</div>
         <div style={{flex:1,minWidth:0}}>
           <div style={{color:"#EEF0F7",fontWeight:700,fontSize:12,fontFamily:"'Bebas Neue',cursive",letterSpacing:1}}>{def?.label}</div>
           <div style={{color:"#7A7F9A",fontSize:10}}>Vue {def?.side==="front"?"avant":def?.side==="back"?"dos":def?.label||""}</div>
@@ -502,7 +552,7 @@ function SlotCard({slot,index,onUpdate,onRemove,canRemove,support}){
           onClick={toggleBgRemoval}
           style={{
             width:36,height:20,borderRadius:10,cursor:"pointer",
-            background:bgRemoval?"#F5B942":"#262938",
+            background:bgRemoval?"#F5C518":"#262938",
             position:"relative",transition:"background .2s",flexShrink:0,
           }}
         >
@@ -514,14 +564,14 @@ function SlotCard({slot,index,onUpdate,onRemove,canRemove,support}){
             transition:"left .2s",
           }}/>
         </div>
-        <span style={{fontSize:10,color:bgRemoval?"#F5B942":"#555",fontWeight:700,minWidth:24}}>
+        <span style={{fontSize:10,color:bgRemoval?"#F5C518":"#555",fontWeight:700,minWidth:24}}>
           {bgRemoval?"ON":"OFF"}
         </span>
       </div>
 
       <div style={{padding:"10px 12px"}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}}>
         {proc?(
-          <div style={{textAlign:"center",padding:"14px 0",color:"#F5B942",fontSize:12}}>
+          <div style={{textAlign:"center",padding:"14px 0",color:"#F5C518",fontSize:12}}>
             ⏳ {bgRemoval?"Suppression fond…":"Chargement…"}
           </div>
         ):slot.image?(
@@ -541,8 +591,8 @@ function SlotCard({slot,index,onUpdate,onRemove,canRemove,support}){
                 const defaultW=parseFloat(slotDef.width||"22");
                 const newW=defaultW*newScale;
                 onUpdate({scale:newScale, customW: slot.customX!==null ? newW : null});
-              }} style={{width:70,accentColor:"#F5B942",display:"block"}}/>
-              <div style={{fontSize:10,color:"#F5B942"}}>{Math.round((slot.scale||1)*100)}%</div>
+              }} style={{width:70,accentColor:"#F5C518",display:"block"}}/>
+              <div style={{fontSize:10,color:"#F5C518"}}>{Math.round((slot.scale||1)*100)}%</div>
             </div>
           </div>
         ):(
@@ -568,20 +618,20 @@ const BATDocument=forwardRef(function BATDocument({client,support,colorId,slots,
   const bb={fontFamily:"'Bebas Neue',cursive",letterSpacing:2};
   const hasLogos = active.length > 0;
   return(
-    <div ref={ref} style={{borderRadius:10,overflow:"hidden",border:"3px solid #F5B942",boxShadow:"0 24px 80px rgba(0,0,0,0.9)"}}>
-      <div style={{background:"#16181F",borderBottom:"3px solid #F5B942",padding:"10px 16px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+    <div ref={ref} style={{borderRadius:10,overflow:"hidden",border:"3px solid #F5C518",boxShadow:"0 24px 80px rgba(0,0,0,0.9)"}}>
+      <div style={{background:"#16181F",borderBottom:"3px solid #F5C518",padding:"10px 16px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
         {/* Bon à tirer */}
-        <div style={{...cv,fontSize:22,color:"#F5B942",border:"2px solid #F5B942",borderRadius:6,padding:"2px 12px",lineHeight:1.3,flexShrink:0,whiteSpace:"nowrap"}}>Bon à tirer</div>
-        <div style={{flexShrink:0,borderBottom:"2px dashed #F5B94260",width:16}}/>
+        <div style={{...cv,fontSize:22,color:"#F5C518",border:"2px solid #F5C518",borderRadius:6,padding:"2px 12px",lineHeight:1.3,flexShrink:0,whiteSpace:"nowrap"}}>Bon à tirer</div>
+        <div style={{flexShrink:0,borderBottom:"2px dashed #F5C51860",width:16}}/>
         {/* Client */}
         <div style={{display:"flex",alignItems:"baseline",gap:6,flex:"1 1 0",minWidth:0,flexWrap:"wrap"}}>
-          <span style={{...cv,fontSize:19,color:"#F5B942",flexShrink:0,whiteSpace:"nowrap"}}>Client :</span>
+          <span style={{...cv,fontSize:19,color:"#F5C518",flexShrink:0,whiteSpace:"nowrap"}}>Client :</span>
           <span style={{...bb,fontSize:20,color:"#fff",wordBreak:"break-word"}}>{client||"—"}</span>
         </div>
-        <div style={{flexShrink:0,borderBottom:"2px dashed #F5B94260",width:16}}/>
+        <div style={{flexShrink:0,borderBottom:"2px dashed #F5C51860",width:16}}/>
         {/* Date */}
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,whiteSpace:"nowrap"}}>
-          <span style={{...cv,fontSize:19,color:"#F5B942"}}>Date :</span>
+          <span style={{...cv,fontSize:19,color:"#F5C518"}}>Date :</span>
           <span style={{...bb,fontSize:20,color:"#fff"}}>{date}</span>
         </div>
       </div>
@@ -624,19 +674,19 @@ const BATDocument=forwardRef(function BATDocument({client,support,colorId,slots,
           );
         })()}
       </div>
-      <div style={{background:"#16181F",borderTop:"3px solid #F5B942",padding:"10px 22px",display:"flex",alignItems:"center"}}>
+      <div style={{background:"#16181F",borderTop:"3px solid #F5C518",padding:"10px 22px",display:"flex",alignItems:"center"}}>
         <img src={LOGO_FT} alt="The Textile Bar" style={{height:32,objectFit:"contain",display:"block",flexShrink:0}}/>
-        <div style={{width:18,borderBottom:"2px dashed #F5B94250",margin:"0 12px"}}/>
+        <div style={{width:18,borderBottom:"2px dashed #F5C51850",margin:"0 12px"}}/>
         <div style={{flex:1,textAlign:"center"}}>
           <div style={{...bb,fontSize:16,color:"#fff",letterSpacing:3}}>
-            {([...Object.entries(SUPPORTS).map(([k,v])=>({id:k,...v})),...(customSupports||[])].find(s=>s.id===support||s.tex===support)?.short || SUPPORTS[support]?.short)} <span style={{color:"#F5B942"}}>{col.label.toUpperCase()}</span>
+            {([...Object.entries(SUPPORTS).map(([k,v])=>({id:k,...v})),...(customSupports||[])].find(s=>s.id===support||s.tex===support)?.short || SUPPORTS[support]?.short)} <span style={{color:"#F5C518"}}>{col.label.toUpperCase()}</span>
             {active.length>0&&<span style={{color:"#ccc"}}> : {active.map(s=>SLOT_DEFS[s.position]?.label).join(" + ").toUpperCase()}</span>}
           </div>
         </div>
-        <div style={{width:18,borderBottom:"2px dashed #F5B94250",margin:"0 12px"}}/>
+        <div style={{width:18,borderBottom:"2px dashed #F5C51850",margin:"0 12px"}}/>
         <div style={{flexShrink:0,textAlign:"right"}}>
           <div style={{color:"#555",fontSize:9,letterSpacing:1,textTransform:"uppercase"}}>Réf.</div>
-          <div style={{...bb,color:"#F5B942",fontSize:13}}>{batNum}</div>
+          <div style={{...bb,color:"#F5C518",fontSize:13}}>{batNum}</div>
         </div>
       </div>
     </div>
@@ -700,7 +750,7 @@ function BATModule({onSendToDevis, batSupports=[], supports=[]}){
     setSlots(p=>p.map(s=>s.id===id?{...s,customX:null,customY:null,customW:null}:s));
   };
   const cs={background:"#1C1F2A",border:"1px solid #262938",borderRadius:12,padding:18,marginBottom:14};
-  const ttl=(mb=12)=>({fontFamily:"'Bebas Neue',cursive",fontSize:15,letterSpacing:1.5,color:"#F5B942",marginBottom:mb});
+  const ttl=(mb=12)=>({fontFamily:"'Bebas Neue',cursive",fontSize:15,letterSpacing:1.5,color:"#F5C518",marginBottom:mb});
   const lbl={fontSize:10,color:"#7A7F9A",fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",display:"block",marginBottom:4};
   const inp={background:"#12141C",border:"1px solid #262938",borderRadius:7,padding:"8px 10px",color:"#EEF0F7",fontFamily:"'DM Sans',sans-serif",fontSize:13,width:"100%",boxSizing:"border-box",outline:"none"};
   const canVal=slots.some(s=>s.image);
@@ -719,7 +769,7 @@ function BATModule({onSendToDevis, batSupports=[], supports=[]}){
           <div style={ttl()}>① Support</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
             {Object.entries(allSupports).map(([k,v])=>(
-              <button key={k} onClick={()=>{setSupport(k);setApproved(false);}} style={{padding:"8px 4px",borderRadius:8,border:"none",cursor:"pointer",background:support===k?"#F5B942":"#12141C",color:support===k?"#111":"#7A7F9A",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",transition:"all .15s",lineHeight:1.2}}>{v.label}</button>
+              <button key={k} onClick={()=>{setSupport(k);setApproved(false);}} style={{padding:"8px 4px",borderRadius:8,border:"none",cursor:"pointer",background:support===k?"#F5C518":"#12141C",color:support===k?"#111":"#7A7F9A",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif",transition:"all .15s",lineHeight:1.2}}>{v.label}</button>
             ))}
           </div>
         </div>
@@ -727,10 +777,10 @@ function BATModule({onSendToDevis, batSupports=[], supports=[]}){
           <div style={ttl()}>② Couleur</div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
             {GARMENT_COLORS.map(c=>(
-              <div key={c.id} title={c.label} onClick={()=>{setColorId(c.id);setApproved(false);}} style={{width:28,height:28,borderRadius:"50%",background:c.hex,cursor:"pointer",flexShrink:0,border:colorId===c.id?"3px solid #F5B942":"3px solid transparent",boxShadow:colorId===c.id?"0 0 0 2px #F5B94255":"none",outline:["#F0F0EC","#E8D800"].includes(c.hex)?"1px solid #555":"none",transition:"all .15s"}}/>
+              <div key={c.id} title={c.label} onClick={()=>{setColorId(c.id);setApproved(false);}} style={{width:28,height:28,borderRadius:"50%",background:c.hex,cursor:"pointer",flexShrink:0,border:colorId===c.id?"3px solid #F5C518":"3px solid transparent",boxShadow:colorId===c.id?"0 0 0 2px #F5C51855":"none",outline:["#F0F0EC","#E8D800"].includes(c.hex)?"1px solid #555":"none",transition:"all .15s"}}/>
             ))}
           </div>
-          <div style={{marginTop:8,fontSize:12,color:"#F5B942",fontWeight:700}}>{GARMENT_COLORS.find(c=>c.id===colorId)?.label}</div>
+          <div style={{marginTop:8,fontSize:12,color:"#F5C518",fontWeight:700}}>{GARMENT_COLORS.find(c=>c.id===colorId)?.label}</div>
         </div>
         <div style={cs}>
           <div style={ttl()}>③ Informations</div>
@@ -746,7 +796,7 @@ function BATModule({onSendToDevis, batSupports=[], supports=[]}){
         <div style={cs}>
           <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
             <div style={ttl(0)}>④ Marquages ({slots.length}/3)</div>
-            {slots.length<3&&<button onClick={addSlot} style={{marginLeft:"auto",background:"#F5B94218",border:"1px solid #F5B942",borderRadius:6,color:"#F5B942",cursor:"pointer",padding:"3px 10px",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Ajouter</button>}
+            {slots.length<3&&<button onClick={addSlot} style={{marginLeft:"auto",background:"#F5C51818",border:"1px solid #F5C518",borderRadius:6,color:"#F5C518",cursor:"pointer",padding:"3px 10px",fontSize:10,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Ajouter</button>}
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {slots.map((s,i)=><SlotCard key={s.id} slot={s} index={i} support={support} onUpdate={f=>upd(s.id,f)} onRemove={()=>del(s.id)} canRemove={slots.length>1}/>)}
@@ -754,7 +804,7 @@ function BATModule({onSendToDevis, batSupports=[], supports=[]}){
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {!approved?(
-            <button onClick={()=>setApproved(true)} disabled={!canVal} style={{padding:"12px",borderRadius:10,border:"none",cursor:canVal?"pointer":"not-allowed",background:canVal?"#F5B942":"#262938",color:canVal?"#111":"#444",fontFamily:"'Bebas Neue',cursive",fontSize:17,letterSpacing:2,transition:"all .2s"}}>✅ Valider ce BAT</button>
+            <button onClick={()=>setApproved(true)} disabled={!canVal} style={{padding:"12px",borderRadius:10,border:"none",cursor:canVal?"pointer":"not-allowed",background:canVal?"#F5C518":"#262938",color:canVal?"#111":"#444",fontFamily:"'Bebas Neue',cursive",fontSize:17,letterSpacing:2,transition:"all .2s"}}>✅ Valider ce BAT</button>
           ):(
             <>
               <div style={{background:"#22C55E18",border:"1px solid #22C55E",borderRadius:10,padding:"10px",textAlign:"center",color:"#22C55E",fontFamily:"'Bebas Neue',cursive",fontSize:15,letterSpacing:2}}>✓ BAT VALIDÉ</div>
@@ -763,7 +813,7 @@ function BATModule({onSendToDevis, batSupports=[], supports=[]}){
           )}
           <button
             onClick={exportPDF}
-            style={{padding:"12px",borderRadius:10,border:"none",cursor:"pointer",background:"#F5B942",color:"#111",fontFamily:"'Bebas Neue',cursive",fontSize:16,letterSpacing:2,transition:"all .2s",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+            style={{padding:"12px",borderRadius:10,border:"none",cursor:"pointer",background:"#F5C518",color:"#111",fontFamily:"'Bebas Neue',cursive",fontSize:16,letterSpacing:2,transition:"all .2s",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
           >
             {exporting ? "⏳ Export en cours…" : "📄 Exporter en PDF"}
           </button>
@@ -786,14 +836,14 @@ function BATModule({onSendToDevis, batSupports=[], supports=[]}){
               const def=SLOT_DEFS[s.position];
               const hasCustom=s.customX!==null;
               return (
-                <div key={s.id} style={{background:"#1C1F2A",border:`1px solid ${activeSlotId===s.id?"#F5B942":"#262938"}`,borderRadius:8,padding:"5px 10px",display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}
+                <div key={s.id} style={{background:"#1C1F2A",border:`1px solid ${activeSlotId===s.id?"#F5C518":"#262938"}`,borderRadius:8,padding:"5px 10px",display:"flex",alignItems:"center",gap:6,cursor:"pointer"}}
                   onClick={()=>setActiveSlotId(s.id===activeSlotId?null:s.id)}>
-                  <div style={{width:7,height:7,borderRadius:"50%",background:activeSlotId===s.id?"#F5B942":"#555"}}/>
+                  <div style={{width:7,height:7,borderRadius:"50%",background:activeSlotId===s.id?"#F5C518":"#555"}}/>
                   <span style={{fontSize:11,color:"#7A7F9A"}}>#{i+1}</span>
                   <span style={{fontSize:12,color:"#EEF0F7",fontWeight:700}}>{def?.label}</span>
                   <span style={{fontSize:10,color:"#3B82F6"}}>vue {def?.side==="front"?"avant":"dos"}</span>
                   {hasCustom&&(
-                    <button onClick={e=>{e.stopPropagation();resetSlotPos(s.id);}} style={{background:"#F5B94222",border:"1px solid #F5B94255",borderRadius:4,color:"#F5B942",cursor:"pointer",padding:"1px 6px",fontSize:9,fontWeight:700,marginLeft:2}}>↺ Reset</button>
+                    <button onClick={e=>{e.stopPropagation();resetSlotPos(s.id);}} style={{background:"#F5C51822",border:"1px solid #F5C51855",borderRadius:4,color:"#F5C518",cursor:"pointer",padding:"1px 6px",fontSize:9,fontWeight:700,marginLeft:2}}>↺ Reset</button>
                   )}
                 </div>
               );
@@ -1118,7 +1168,7 @@ function InvoicePreview({ invoice, client, settings, onClose }) {
         </div>
 
         {/* Invoice content — fond blanc, textes sombres explicites */}
-        <div id="invoice-print-area" style={{ fontFamily:"Arial, Helvetica, sans-serif", background:"#fff", color:"#1a1a1a" }}>
+        <div id="invoice-print-area" style={{ fontFamily:"Arial, Helvetica, sans-serif", background:"#fff", color:"#1a1a1a", display:"flex", flexDirection:"column", minHeight:"297mm" }}>
 
           {/* ── HEADER ── */}
           <div style={{ background:headerBg, display:"flex", alignItems:"stretch", minHeight:110 }}>
@@ -1140,7 +1190,7 @@ function InvoicePreview({ invoice, client, settings, onClose }) {
           </div>
 
           {/* ── CORPS ── */}
-          <div style={{ padding:"28px 36px", background:"#fff" }}>
+          <div style={{ padding:"28px 36px", background:"#fff", flex:1 }}>
 
             {/* Bill-to + numéro/date */}
             <div style={{ display:"flex", justifyContent:"space-between", marginBottom:28, gap:24 }}>
@@ -1220,7 +1270,7 @@ function InvoicePreview({ invoice, client, settings, onClose }) {
           </div>
 
           {/* Footer légal */}
-          <div style={{ background:"#f3f4f6", borderTop:"1px solid #e5e7eb", padding:"10px 36px", fontSize:10, color:"#374151", textAlign:"center" }}>
+          <div style={{ marginTop:"auto", background:"#f3f4f6", borderTop:"1px solid #e5e7eb", padding:"10px 36px", fontSize:10, color:"#374151", textAlign:"center" }}>
             {settings.companyName}{settings.legalForm?` - ${settings.legalForm}`:""}{settings.capital?` AU CAPITAL DE ${settings.capital}`:""}
             {settings.siret?` - SIRET ${settings.siret}`:""}{settings.tva?` - TVA ${settings.tva}`:""}
           </div>
@@ -1997,15 +2047,15 @@ const TARIF_BRODERIE = {
   label: "Broderie",
   cols: ["Petit\n<10cm", "Moyen\n10-20cm", "Grand\n>20cm"],
   rows: [
-    { qty: "1–10",     vals: [5.00, 7.50, 10.00] },
-    { qty: "11–25",    vals: [4.00, 6.00,  8.50] },
-    { qty: "26–35",    vals: [3.50, 5.00,  7.50] },
-    { qty: "36–50",    vals: [3.00, 4.50,  6.50] },
-    { qty: "51–75",    vals: [2.50, 4.00,  5.50] },
-    { qty: "76–100",   vals: [2.00, 3.50,  5.00] },
-    { qty: "101–200",  vals: [1.80, 3.00,  4.50] },
-    { qty: "201–300",  vals: [1.60, 2.50,  4.00] },
-    { qty: "301–400+", vals: [1.40, 2.00,  3.50] },
+    { qty: "1–10",     vals: [15,   20,   25  ] },
+    { qty: "11–25",    vals: [12.5, 15,   20  ] },
+    { qty: "26–35",    vals: [7.7,  10.5, 14  ] },
+    { qty: "36–50",    vals: [6,    9,    12  ] },
+    { qty: "51–75",    vals: [5,    8,    11  ] },
+    { qty: "76–100",   vals: [4,    7,    10  ] },
+    { qty: "101–200",  vals: [3.75, 6.5,  9   ] },
+    { qty: "201–300",  vals: [3.15, 6,    8.5 ] },
+    { qty: "301–400+", vals: [3,    5.5,  8.3 ] },
   ],
 };
 
@@ -2013,12 +2063,12 @@ const TARIF_MARQUAGE = {
   label: "Marquage",
   cols: ["Petit\n<10cm", "Moyen\n10-20cm", "Grand\n>20cm"],
   rows: [
-    { qty: "1–10",    vals: [4.00, 5.50, 7.00] },
-    { qty: "11–25",   vals: [3.00, 4.00, 5.50] },
-    { qty: "26–50",   vals: [2.50, 3.50, 4.50] },
-    { qty: "51–100",  vals: [2.00, 3.00, 4.00] },
-    { qty: "101–200", vals: [1.50, 2.50, 3.50] },
-    { qty: "201+",    vals: [1.20, 2.00, 3.00] },
+    { qty: "1–10",    vals: [5.83, 7.5,  11.25] },
+    { qty: "11–25",   vals: [4.17, 5.42,  8.75] },
+    { qty: "26–50",   vals: [3.33, 4.58,  6.25] },
+    { qty: "51–100",  vals: [2.92, 4.17,  5.83] },
+    { qty: "101–200", vals: [2.5,  3.75,  5.42] },
+    { qty: "201+",    vals: [2.08, 3.33,  5   ] },
   ],
 };
 
@@ -2046,8 +2096,8 @@ const TARIF_TSHIRT = {
 function TarifTable({ tarif, highlight, singleCol }) {
   return (
     <div style={{borderRadius:10,overflow:"hidden",border:"1px solid #262938",marginBottom:28}}>
-      <div style={{background:"#1C1F2A",padding:"12px 18px",borderBottom:"2px solid #F5B942",display:"flex",alignItems:"center",gap:10}}>
-        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:18,letterSpacing:2,color:"#F5B942"}}>{tarif.label}</div>
+      <div style={{background:"#1C1F2A",padding:"12px 18px",borderBottom:"2px solid #F5C518",display:"flex",alignItems:"center",gap:10}}>
+        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:18,letterSpacing:2,color:"#F5C518"}}>{tarif.label}</div>
         <div style={{fontSize:11,color:"#7A7F9A"}}>— Prix unitaire HT par quantité (€)</div>
       </div>
       <table style={{width:"100%",borderCollapse:"collapse"}}>
@@ -2055,7 +2105,7 @@ function TarifTable({ tarif, highlight, singleCol }) {
           <tr style={{background:"#262938"}}>
             <th style={{padding:"10px 16px",textAlign:"left",fontSize:11,color:"#7A7F9A",fontWeight:700,letterSpacing:1,width:singleCol?"50%":"25%"}}>QUANTITÉ</th>
             {tarif.cols.map((c,i)=>(
-              <th key={i} style={{padding:"10px 16px",textAlign:"right",fontSize:11,color:"#F5B942",fontWeight:700,letterSpacing:1}}>{c.toUpperCase()}</th>
+              <th key={i} style={{padding:"10px 16px",textAlign:"right",fontSize:11,color:"#F5C518",fontWeight:700,letterSpacing:1}}>{c.toUpperCase()}</th>
             ))}
           </tr>
         </thead>
@@ -2064,10 +2114,10 @@ function TarifTable({ tarif, highlight, singleCol }) {
             const isH = highlight && (highlight.qty===row.qty || highlight.qty===row.label);
             const bg = ri%2===0?"#12141C":"#0D0F16";
             return(
-              <tr key={ri} style={{background:isH?"#F5B94215":bg,transition:"background .15s"}}>
-                <td style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:isH?"#F5B942":"#EEF0F7",borderBottom:"1px solid #1C1F2A"}}>{row.label||row.qty}</td>
+              <tr key={ri} style={{background:isH?"#F5C51815":bg,transition:"background .15s"}}>
+                <td style={{padding:"10px 16px",fontSize:13,fontWeight:700,color:isH?"#F5C518":"#EEF0F7",borderBottom:"1px solid #1C1F2A"}}>{row.label||row.qty}</td>
                 {row.vals.map((v,vi)=>(
-                  <td key={vi} style={{padding:"10px 16px",textAlign:"right",fontSize:13,color:isH?"#F5B942":"#EEF0F7",fontWeight:600,borderBottom:"1px solid #1C1F2A"}}>
+                  <td key={vi} style={{padding:"10px 16px",textAlign:"right",fontSize:13,color:isH?"#F5C518":"#EEF0F7",fontWeight:600,borderBottom:"1px solid #1C1F2A"}}>
                     {`${v.toFixed(2).replace(".",",")} €`}
                   </td>
                 ))}
@@ -2080,8 +2130,8 @@ function TarifTable({ tarif, highlight, singleCol }) {
         <div style={{background:"#0D0F16",padding:"10px 18px",display:"flex",gap:20,flexWrap:"wrap"}}>
           {[["Petit","< 10 cm"],["Moyen","10 – 20 cm"],["Grand","> 20 cm"]].map(([s,d])=>(
             <div key={s} style={{display:"flex",alignItems:"center",gap:6}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:"#F5B942"}}/>
-              <span style={{fontSize:11,color:"#F5B942",fontWeight:700}}>{s}</span>
+              <div style={{width:8,height:8,borderRadius:"50%",background:"#F5C518"}}/>
+              <span style={{fontSize:11,color:"#F5C518",fontWeight:700}}>{s}</span>
               <span style={{fontSize:11,color:"#7A7F9A"}}>{d}</span>
             </div>
           ))}
@@ -2096,6 +2146,25 @@ const SUPPORTS_TARIF = [
   { id:"aucun",  label:"Aucun",   icon:"🚫", tarif:null },
   { id:"tshirt", label:"T-Shirt", icon:"👕", tarif:"TARIF_TSHIRT" },
 ];
+
+function findTarif(tarif, qty, colIdx){
+  if(!tarif||!tarif.rows||!qty||qty<=0) return 0;
+  // Extraire le nombre max de chaque palier ex: "1–10" → 10, "201+" → Infinity
+  const getMax = s => {
+    if(!s) return Infinity;
+    const str = String(s).replace(/\s/g,'');
+    if(str.endsWith('+')) return Infinity;
+    const parts = str.split(/[–\-]/);
+    return parseFloat(parts[parts.length-1])||Infinity;
+  };
+  let found = tarif.rows[0];
+  for(const row of tarif.rows){
+    if(qty <= getMax(row.qty)){ found = row; break; }
+    found = row;
+  }
+  const vals = found.vals||[];
+  return parseFloat(vals[Math.min(colIdx, vals.length-1)])||0;
+}
 
 function TarifsModule({markTypes, supports, grids}){
   const[activeTab,setActiveTab]=useState("simulateur");
@@ -2125,7 +2194,7 @@ function TarifsModule({markTypes, supports, grids}){
   const prixTotal=parseFloat((prixUnitTotal*qty).toFixed(2));
 
   const inp={background:"#12141C",border:"1px solid #262938",borderRadius:7,padding:"7px 10px",color:"#EEF0F7",fontFamily:"'DM Sans',sans-serif",fontSize:13,outline:"none"};
-  const bb15={fontFamily:"'Bebas Neue',cursive",fontSize:15,color:"#F5B942",letterSpacing:1.5,marginBottom:12};
+  const bb15={fontFamily:"'Bebas Neue',cursive",fontSize:15,color:"#F5C518",letterSpacing:1.5,marginBottom:12};
 
   return(
     <div style={{maxWidth:960,margin:"0 auto"}}>
@@ -2133,14 +2202,14 @@ function TarifsModule({markTypes, supports, grids}){
       <div style={{display:"flex",gap:8,marginBottom:24,flexWrap:"wrap"}}>
         <button onClick={()=>setActiveTab("simulateur")} style={{
           padding:"10px 20px",borderRadius:10,border:"none",cursor:"pointer",
-          background:activeTab==="simulateur"?"#F5B942":"#1C1F2A",
+          background:activeTab==="simulateur"?"#F5C518":"#1C1F2A",
           color:activeTab==="simulateur"?"#111":"#7A7F9A",
           fontFamily:"'Bebas Neue',cursive",fontSize:15,letterSpacing:2,transition:"all .15s",
         }}>🧮 Simulateur</button>
         {markTypes.map(m=>(
           <button key={m.id} onClick={()=>setActiveTab(m.id)} style={{
             padding:"10px 20px",borderRadius:10,border:"none",cursor:"pointer",
-            background:activeTab===m.id?"#F5B942":"#1C1F2A",
+            background:activeTab===m.id?"#F5C518":"#1C1F2A",
             color:activeTab===m.id?"#111":"#7A7F9A",
             fontFamily:"'Bebas Neue',cursive",fontSize:15,letterSpacing:2,transition:"all .15s",
           }}>{m.icon} {m.label}</button>
@@ -2148,7 +2217,7 @@ function TarifsModule({markTypes, supports, grids}){
         {visibleSupports.filter(s=>s.id!=="aucun").map(s=>(
           <button key={s.id} onClick={()=>setActiveTab(s.id)} style={{
             padding:"10px 20px",borderRadius:10,border:"none",cursor:"pointer",
-            background:activeTab===s.id?"#F5B942":"#1C1F2A",
+            background:activeTab===s.id?"#F5C518":"#1C1F2A",
             color:activeTab===s.id?"#111":"#7A7F9A",
             fontFamily:"'Bebas Neue',cursive",fontSize:15,letterSpacing:2,transition:"all .15s",
           }}>{s.icon} {s.label}</button>
@@ -2158,7 +2227,7 @@ function TarifsModule({markTypes, supports, grids}){
       {/* ── SIMULATEUR ── */}
       {activeTab==="simulateur"&&(
         <div>
-          <div style={{background:"#1C1F2A",border:"1px solid #F5B94240",borderRadius:12,padding:"18px 20px",marginBottom:16}}>
+          <div style={{background:"#1C1F2A",border:"1px solid #F5C51840",borderRadius:12,padding:"18px 20px",marginBottom:16}}>
             <div style={bb15}>① Support & Quantité</div>
             <div style={{display:"flex",gap:16,alignItems:"flex-end",flexWrap:"wrap"}}>
               <div style={{flex:1,minWidth:160}}>
@@ -2167,10 +2236,10 @@ function TarifsModule({markTypes, supports, grids}){
                   {visibleSupports.map(s=>(
                     <button key={s.id} onClick={()=>setSimSupport(s.id)} style={{
                       padding:"8px 14px",borderRadius:8,cursor:"pointer",
-                      background:simSupport===s.id?"#F5B942":"#12141C",
+                      background:simSupport===s.id?"#F5C518":"#12141C",
                       color:simSupport===s.id?"#111":"#7A7F9A",
                       fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",
-                      border:simSupport===s.id?"2px solid #F5B942":"2px solid #262938",
+                      border:simSupport===s.id?"2px solid #F5C518":"2px solid #262938",
                       transition:"all .15s",display:"flex",alignItems:"center",gap:5,
                     }}><span>{s.icon}</span><span>{s.label}</span></button>
                   ))}
@@ -2192,8 +2261,8 @@ function TarifsModule({markTypes, supports, grids}){
 
           <div style={{background:"#1C1F2A",border:"1px solid #262938",borderRadius:12,padding:"18px 20px",marginBottom:16}}>
             <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
-              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:15,color:"#F5B942",letterSpacing:1.5,flex:1}}>② Emplacements de marquage</div>
-              <button onClick={addEmp} style={{background:"#F5B94218",border:"1px solid #F5B942",borderRadius:7,color:"#F5B942",cursor:"pointer",padding:"4px 12px",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Ajouter</button>
+              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:15,color:"#F5C518",letterSpacing:1.5,flex:1}}>② Emplacements de marquage</div>
+              <button onClick={addEmp} style={{background:"#F5C51818",border:"1px solid #F5C518",borderRadius:7,color:"#F5C518",cursor:"pointer",padding:"4px 12px",fontSize:11,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Ajouter</button>
             </div>
             {emplacements.map((e,i)=>{
               const g=grids[e.type];
@@ -2203,7 +2272,7 @@ function TarifsModule({markTypes, supports, grids}){
               const price=qty>0&&g?findTarif({rows:g},qty,Math.min(e.sizeIdx,nCols-1)):0;
               return(
                 <div key={e.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,background:"#12141C",borderRadius:8,padding:"10px 12px"}}>
-                  <div style={{width:22,height:22,borderRadius:"50%",background:"#F5B942",color:"#111",fontWeight:800,fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
+                  <div style={{width:22,height:22,borderRadius:"50%",background:"#F5C518",color:"#111",fontWeight:800,fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>{i+1}</div>
                   <select value={e.type} onChange={ev=>updEmp(e.id,{type:ev.target.value,sizeIdx:0})} style={{...inp,flex:1}}>
                     {markTypes.map(m=><option key={m.id} value={m.id}>{m.icon} {m.label}</option>)}
                   </select>
@@ -2212,7 +2281,7 @@ function TarifsModule({markTypes, supports, grids}){
                       {colLabels.map((c,ci)=><option key={ci} value={ci}>{c}</option>)}
                     </select>
                   )}
-                  {qty>0&&<div style={{minWidth:70,textAlign:"right",fontWeight:700,color:"#F5B942",fontSize:13}}>{price.toFixed(2).replace(".",",")} €</div>}
+                  {qty>0&&<div style={{minWidth:70,textAlign:"right",fontWeight:700,color:"#F5C518",fontSize:13}}>{price.toFixed(2).replace(".",",")} €</div>}
                   {emplacements.length>1&&<button onClick={()=>delEmp(e.id)} style={{background:"#EF444420",border:"none",borderRadius:5,color:"#EF4444",cursor:"pointer",padding:"4px 8px",fontSize:12,fontWeight:700,flexShrink:0}}>✕</button>}
                 </div>
               );
@@ -2220,8 +2289,8 @@ function TarifsModule({markTypes, supports, grids}){
           </div>
 
           {qty>0&&(
-            <div style={{background:"#1C1F2A",border:"2px solid #F5B942",borderRadius:12,padding:"18px 20px"}}>
-              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:15,color:"#F5B942",letterSpacing:1.5,marginBottom:14}}>③ Résultat pour {qty} pièces</div>
+            <div style={{background:"#1C1F2A",border:"2px solid #F5C518",borderRadius:12,padding:"18px 20px"}}>
+              <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:15,color:"#F5C518",letterSpacing:1.5,marginBottom:14}}>③ Résultat pour {qty} pièces</div>
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {supportGrid&&(
                   <div style={{display:"flex",justifyContent:"space-between",padding:"7px 10px",background:"#12141C",borderRadius:6}}>
@@ -2243,11 +2312,11 @@ function TarifsModule({markTypes, supports, grids}){
                 })}
                 <div style={{borderTop:"1px solid #262938",marginTop:4,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <span style={{color:"#7A7F9A",fontSize:12}}>Prix unitaire total HT</span>
-                  <span style={{color:"#F5B942",fontWeight:700,fontSize:16}}>{prixUnitTotal.toFixed(2).replace(".",",")} € / pièce</span>
+                  <span style={{color:"#F5C518",fontWeight:700,fontSize:16}}>{prixUnitTotal.toFixed(2).replace(".",",")} € / pièce</span>
                 </div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#F5B94215",padding:"10px 12px",borderRadius:8,border:"1px solid #F5B94240"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:"#F5C51815",padding:"10px 12px",borderRadius:8,border:"1px solid #F5C51840"}}>
                   <span style={{color:"#EEF0F7",fontWeight:700,fontSize:13}}>TOTAL HT</span>
-                  <span style={{color:"#F5B942",fontWeight:800,fontSize:24,fontFamily:"'Bebas Neue',cursive",letterSpacing:1}}>{prixTotal.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</span>
+                  <span style={{color:"#F5C518",fontWeight:800,fontSize:24,fontFamily:"'Bebas Neue',cursive",letterSpacing:1}}>{prixTotal.toLocaleString("fr-FR",{minimumFractionDigits:2})} €</span>
                 </div>
               </div>
             </div>
@@ -2299,7 +2368,7 @@ function PinPad({ onSuccess }) {
   return(
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:400,gap:28}}>
       <div style={{textAlign:"center"}}>
-        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:28,letterSpacing:3,color:"#F5B942",marginBottom:6}}>⚙️ MODE PARAMÈTRES</div>
+        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:28,letterSpacing:3,color:"#F5C518",marginBottom:6}}>⚙️ MODE PARAMÈTRES</div>
         <div style={{fontSize:13,color:"#7A7F9A"}}>Entrez votre code PIN à 4 chiffres</div>
       </div>
       {/* Indicateurs */}
@@ -2307,8 +2376,8 @@ function PinPad({ onSuccess }) {
         {[0,1,2,3].map(i=>(
           <div key={i} style={{
             width:18,height:18,borderRadius:"50%",
-            background:pin.length>i?(error?"#EF4444":"#F5B942"):"transparent",
-            border:`2px solid ${pin.length>i?(error?"#EF4444":"#F5B942"):"#3B4060"}`,
+            background:pin.length>i?(error?"#EF4444":"#F5C518"):"transparent",
+            border:`2px solid ${pin.length>i?(error?"#EF4444":"#F5C518"):"#3B4060"}`,
             transition:"all .15s",
           }}/>
         ))}
@@ -2334,7 +2403,7 @@ function PinPad({ onSuccess }) {
 }
 
 // ── FORMULAIRE AJOUT ARTICLE BAT ──────────────────────────────────────────────
-function NewBATSupportForm({ onAdd, accentColor = "#F5B942" }) {
+function NewBATSupportForm({ onAdd, accentColor = "#F5C518" }) {
   const [label, setLabel]   = useState("");
   const [short, setShort]   = useState("");
   const [images, setImages] = useState({ front: null, back: null, shoulder_left: null });
@@ -2564,7 +2633,7 @@ function AccessCodeSection({ appCode, setAppCode }) {
 
   const cs  = {background:"#1C1F2A",border:"1px solid #262938",borderRadius:12,padding:20,marginBottom:14};
   const inp = {background:"#12141C",border:"1px solid #262938",borderRadius:7,padding:"9px 12px",color:"#EEF0F7",fontFamily:"'DM Sans',sans-serif",fontSize:13,outline:"none",width:"100%",boxSizing:"border-box"};
-  const bb  = {fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5,color:"#F5B942",fontSize:15,marginBottom:14};
+  const bb  = {fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5,color:"#F5C518",fontSize:15,marginBottom:14};
   const lbl = {fontSize:10,color:"#7A7F9A",fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",display:"block",marginBottom:5};
 
   const handleChange = () => {
@@ -2623,7 +2692,7 @@ function AccessCodeSection({ appCode, setAppCode }) {
             </div>
           )}
 
-          <button onClick={handleChange} style={{padding:"11px",borderRadius:9,border:"none",background:"#F5B942",color:"#111",cursor:"pointer",fontWeight:700,fontSize:14,fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5}}>
+          <button onClick={handleChange} style={{padding:"11px",borderRadius:9,border:"none",background:"#F5C518",color:"#111",cursor:"pointer",fontWeight:700,fontSize:14,fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5}}>
             Enregistrer le nouveau code
           </button>
         </div>
@@ -2707,7 +2776,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
   const cs={background:"#1C1F2A",border:"1px solid #262938",borderRadius:12,padding:18,marginBottom:14};
   const inp={background:"#12141C",border:"1px solid #262938",borderRadius:7,padding:"7px 10px",color:"#EEF0F7",fontFamily:"'DM Sans',sans-serif",fontSize:13,outline:"none"};
   const inpSm={...inp,padding:"5px 7px",fontSize:12};
-  const bb={fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5,color:"#F5B942",fontSize:15,marginBottom:12};
+  const bb={fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5,color:"#F5C518",fontSize:15,marginBottom:12};
   const lbl={fontSize:10,color:"#7A7F9A",fontWeight:700,letterSpacing:0.5,textTransform:"uppercase",display:"block",marginBottom:4};
 
   const currentGrid=grids[activeGrid]||[];
@@ -2719,7 +2788,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
     <div style={{maxWidth:960,margin:"0 auto"}}>
       {/* Header */}
       <div style={{display:"flex",alignItems:"center",marginBottom:24,gap:12}}>
-        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:24,letterSpacing:3,color:"#F5B942"}}>⚙️ Paramètres</div>
+        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:24,letterSpacing:3,color:"#F5C518"}}>⚙️ Paramètres</div>
         <div style={{flex:1}}/>
         <div style={{background:"#22C55E18",border:"1px solid #22C55E",borderRadius:8,padding:"5px 14px",fontSize:11,color:"#22C55E",fontWeight:700}}>🔓 Mode admin actif</div>
         <button onClick={()=>setUnlocked(false)} style={{background:"#EF444420",border:"1px solid #EF4444",borderRadius:8,padding:"5px 14px",fontSize:11,color:"#EF4444",cursor:"pointer",fontWeight:700}}>Verrouiller</button>
@@ -2735,10 +2804,11 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
           ["bat_supports","🎽 Articles BAT"],
           ["stock_seuils","📦 Seuils Stock"],
           ["acces","🔑 Code d'accès"],
+          ["factures_payees","🗑️ Factures payées"],
         ].map(([k,l])=>(
           <button key={k} onClick={()=>setSection(k)} style={{
             padding:"9px 18px",borderRadius:9,border:"none",cursor:"pointer",
-            background:section===k?"#F5B942":"#1C1F2A",
+            background:section===k?"#F5C518":"#1C1F2A",
             color:section===k?"#111":"#7A7F9A",
             fontFamily:"'Bebas Neue',cursive",fontSize:14,letterSpacing:1.5,
             transition:"all .15s",
@@ -2775,7 +2845,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                   <input style={inp} placeholder="ex: Sérigraphie" value={newMark.label} onChange={e=>setNewMark(p=>({...p,label:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addMarkType()}/>
                 </div>
               </div>
-              <button onClick={addMarkType} style={{background:"#F5B942",border:"none",borderRadius:8,color:"#111",cursor:"pointer",padding:"11px",fontWeight:700,fontSize:13,fontFamily:"'DM Sans',sans-serif",width:"100%"}}>
+              <button onClick={addMarkType} style={{background:"#F5C518",border:"none",borderRadius:8,color:"#111",cursor:"pointer",padding:"11px",fontWeight:700,fontSize:13,fontFamily:"'DM Sans',sans-serif",width:"100%"}}>
                 ✓ Créer le type + sa grille tarifaire
               </button>
             </div>
@@ -2794,7 +2864,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                 <div style={{fontSize:36,marginBottom:12}}>🗑️</div>
                 <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,letterSpacing:2,color:"#EEF0F7",marginBottom:8}}>Confirmer la suppression</div>
                 <div style={{fontSize:13,color:"#7A7F9A",marginBottom:6}}>Vous allez supprimer le support :</div>
-                <div style={{fontWeight:800,fontSize:15,color:"#F5B942",marginBottom:20}}>
+                <div style={{fontWeight:800,fontSize:15,color:"#F5C518",marginBottom:20}}>
                   {supports.find(s=>s.id===confirmDelete)?.icon} {supports.find(s=>s.id===confirmDelete)?.label}
                 </div>
                 <div style={{fontSize:11,color:"#EF4444",background:"#EF444415",borderRadius:7,padding:"8px 12px",marginBottom:20}}>
@@ -2836,7 +2906,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                       <>
                         <button
                           onClick={()=>setEditSupport(p=>p===s.id?null:s.id)}
-                          style={{background:"#F5B94218",border:"1px solid #F5B94250",borderRadius:6,color:"#F5B942",cursor:"pointer",padding:"4px 10px",fontSize:11,fontWeight:700}}>
+                          style={{background:"#F5C51818",border:"1px solid #F5C51850",borderRadius:6,color:"#F5C518",cursor:"pointer",padding:"4px 10px",fontSize:11,fontWeight:700}}>
                           {editSupport===s.id?"▲ Fermer":"✏️ Modifier"}
                         </button>
                         <button
@@ -2899,7 +2969,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                             <div key={view}>
                               <div style={{fontSize:10,color:"#7A7F9A",fontWeight:700,marginBottom:4}}>{viewLabel.toUpperCase()}</div>
                               <label htmlFor={uid} style={{display:"block",cursor:"pointer"}}>
-                                <div style={{height:90,borderRadius:7,border:`2px dashed ${src?"#F5B942":"#262938"}`,background:"#12141C",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
+                                <div style={{height:90,borderRadius:7,border:`2px dashed ${src?"#F5C518":"#262938"}`,background:"#12141C",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",position:"relative"}}>
                                   {src
                                     ? <img src={src} alt={viewLabel} style={{maxWidth:"90%",maxHeight:"90%",objectFit:"contain"}}/>
                                     : <span style={{fontSize:9,color:"#3B4060",textAlign:"center"}}>📤 Uploader</span>
@@ -2977,7 +3047,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                   <input style={inp} placeholder="ex: Sweat-Shirt" value={newSupport.label} onChange={e=>setNewSupport(p=>({...p,label:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addSupport()}/>
                 </div>
               </div>
-              <button onClick={addSupport} style={{background:"#F5B942",border:"none",borderRadius:8,color:"#111",cursor:"pointer",padding:"11px",fontWeight:700,fontSize:13,fontFamily:"'DM Sans',sans-serif",width:"100%"}}>
+              <button onClick={addSupport} style={{background:"#F5C518",border:"none",borderRadius:8,color:"#111",cursor:"pointer",padding:"11px",fontWeight:700,fontSize:13,fontFamily:"'DM Sans',sans-serif",width:"100%"}}>
                 ✓ Créer le support + sa grille tarifaire
               </button>
             </div>
@@ -2994,7 +3064,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
             {[...markTypes,...supports.filter(s=>s.id!=="aucun"&&s.showInTarifs)].map(item=>(
               <button key={item.id} onClick={()=>setActiveGrid(item.id)} style={{
                 padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",
-                background:activeGrid===item.id?"#F5B942":"#1C1F2A",
+                background:activeGrid===item.id?"#F5C518":"#1C1F2A",
                 color:activeGrid===item.id?"#111":"#7A7F9A",
                 fontFamily:"'DM Sans',sans-serif",fontSize:12,fontWeight:700,
                 display:"flex",alignItems:"center",gap:5,
@@ -3020,7 +3090,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                 <div style={{display:"grid",gridTemplateColumns:`1fr${" 1fr".repeat(currentCols)} 32px`,gap:6,marginBottom:6}}>
                   <div style={{fontSize:10,color:"#7A7F9A",fontWeight:700,padding:"4px 8px"}}>PALIER</div>
                   {(currentCols===1?["PRIX UNITAIRE HT"]:["PETIT","MOYEN","GRAND"]).map((h,i)=>(
-                    <div key={i} style={{fontSize:10,color:"#F5B942",fontWeight:700,textAlign:"right",padding:"4px 8px"}}>{h}</div>
+                    <div key={i} style={{fontSize:10,color:"#F5C518",fontWeight:700,textAlign:"right",padding:"4px 8px"}}>{h}</div>
                   ))}
                   <div/>
                 </div>
@@ -3039,12 +3109,12 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                 ))}
               </>
             )}
-            <button onClick={()=>addRow(activeGrid)} style={{marginTop:8,background:"#F5B94218",border:"1px dashed #F5B942",borderRadius:7,color:"#F5B942",cursor:"pointer",padding:"8px",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",width:"100%"}}>
+            <button onClick={()=>addRow(activeGrid)} style={{marginTop:8,background:"#F5C51818",border:"1px dashed #F5C518",borderRadius:7,color:"#F5C518",cursor:"pointer",padding:"8px",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif",width:"100%"}}>
               + Ajouter un palier
             </button>
           </div>
 
-          <div style={{fontSize:11,color:"#7A7F9A",background:"#1C1F2A",borderRadius:8,padding:"10px 14px",borderLeft:"3px solid #F5B942"}}>
+          <div style={{fontSize:11,color:"#7A7F9A",background:"#1C1F2A",borderRadius:8,padding:"10px 14px",borderLeft:"3px solid #F5C518"}}>
             ⚡ Les modifications sont appliquées en temps réel dans le simulateur et les grilles.
           </div>
         </div>
@@ -3062,7 +3132,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                 : <div style={{width:80,height:56,background:"#0D0E14",borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",color:"#7A7F9A",fontSize:11}}>Aucun</div>
               }
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                <label htmlFor="logo-upload" style={{cursor:"pointer",padding:"7px 16px",borderRadius:7,border:`1px solid ${settings.accentColor||"#F5B942"}`,color:settings.accentColor||"#F5B942",fontSize:12,fontWeight:700}}>
+                <label htmlFor="logo-upload" style={{cursor:"pointer",padding:"7px 16px",borderRadius:7,border:`1px solid ${settings.accentColor||"#F5C518"}`,color:settings.accentColor||"#F5C518",fontSize:12,fontWeight:700}}>
                   📁 Choisir un logo
                 </label>
                 <input id="logo-upload" type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
@@ -3111,12 +3181,12 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                   <div style={lbl}>{label}</div>
                   <inp style={{padding:"8px 10px",background:"#0D0E14",border:"1.5px solid #23253A",borderRadius:7,fontSize:13,color:"#EEF0F7",width:"100%",boxSizing:"border-box",fontFamily:"inherit",display:"block"}}
                     value={settings[key]||""} onChange={e=>setSettings(s=>({...s,[key]:e.target.value}))}
-                    onFocus={ev=>(ev.target.style.borderColor=settings.accentColor||"#F5B942")}
+                    onFocus={ev=>(ev.target.style.borderColor=settings.accentColor||"#F5C518")}
                     onBlur={ev=>(ev.target.style.borderColor="#23253A")}
                     as="input"/>
                   <input style={{padding:"8px 10px",background:"#0D0E14",border:"1.5px solid #23253A",borderRadius:7,fontSize:13,color:"#EEF0F7",width:"100%",boxSizing:"border-box",fontFamily:"inherit"}}
                     value={settings[key]||""} onChange={e=>setSettings(s=>({...s,[key]:e.target.value}))}
-                    onFocus={ev=>(ev.target.style.borderColor=settings.accentColor||"#F5B942")}
+                    onFocus={ev=>(ev.target.style.borderColor=settings.accentColor||"#F5C518")}
                     onBlur={ev=>(ev.target.style.borderColor="#23253A")}/>
                 </div>
               ))}
@@ -3138,7 +3208,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
                   <div style={lbl}>{label}</div>
                   <input style={{padding:"8px 10px",background:"#0D0E14",border:"1.5px solid #23253A",borderRadius:7,fontSize:13,color:"#EEF0F7",width:"100%",boxSizing:"border-box",fontFamily:"inherit"}}
                     value={settings[key]||""} onChange={e=>setSettings(s=>({...s,[key]:e.target.value}))}
-                    onFocus={ev=>(ev.target.style.borderColor=settings.accentColor||"#F5B942")}
+                    onFocus={ev=>(ev.target.style.borderColor=settings.accentColor||"#F5C518")}
                     onBlur={ev=>(ev.target.style.borderColor="#23253A")}/>
                 </div>
               ))}
@@ -3151,7 +3221,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
             <textarea rows={3} style={{padding:"9px 12px",background:"#0D0E14",border:"1.5px solid #23253A",borderRadius:7,fontSize:12,color:"#EEF0F7",width:"100%",boxSizing:"border-box",fontFamily:"inherit",resize:"vertical"}}
               value={settings.footer||""}
               onChange={e=>setSettings(s=>({...s,footer:e.target.value}))}
-              onFocus={ev=>(ev.target.style.borderColor=settings.accentColor||"#F5B942")}
+              onFocus={ev=>(ev.target.style.borderColor=settings.accentColor||"#F5C518")}
               onBlur={ev=>(ev.target.style.borderColor="#23253A")}/>
           </div>
         </div>
@@ -3196,7 +3266,7 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
           </div>
 
           {/* Formulaire ajout nouvel article */}
-          <NewBATSupportForm onAdd={s=>setBatSupports(p=>[...p,s])} accentColor={settings?.accentColor||"#F5B942"}/>
+          <NewBATSupportForm onAdd={s=>setBatSupports(p=>[...p,s])} accentColor={settings?.accentColor||"#F5C518"}/>
         </div>
       )}
 
@@ -3271,6 +3341,98 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
         <AccessCodeSection appCode={appCode} setAppCode={setAppCode}/>
       )}
 
+      {section==="factures_payees"&&(
+        <PaidInvoicesAdmin/>
+      )}
+
+    </div>
+  );
+}
+
+function PaidInvoicesAdmin() {
+  const [invoices, setInvoices] = useLocalStorage("ttb_invoices", []);
+  const [clients]               = useLocalStorage("ttb_clients",  []);
+  const [settings]              = useLocalStorage("ttb_settings", {});
+  const [selected, setSelected] = useState(new Set());
+  const [confirm, setConfirm]   = useState(null); // id ou "bulk"
+
+  const paid   = (invoices||[]).filter(i => i.status==="paid" || i.status==="overdue");
+  const fmt    = v => Number(v||0).toLocaleString("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2})+" €";
+  const accent = settings?.accentColor || "#F5C518";
+
+  const allChecked = paid.length>0 && selected.size===paid.length;
+  const toggleAll  = () => setSelected(allChecked ? new Set() : new Set(paid.map(i=>i.id)));
+  const toggleOne  = id => setSelected(p=>{ const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n; });
+
+  const doDelete = () => {
+    if(confirm==="bulk") setInvoices(p=>p.filter(i=>!selected.has(i.id)));
+    else setInvoices(p=>p.filter(i=>i.id!==confirm));
+    setSelected(new Set()); setConfirm(null);
+  };
+
+  const cs = {background:"#1C1F2A",border:"1px solid #262938",borderRadius:12,padding:20,marginBottom:14};
+  const bb = {fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5,color:"#F5C518",fontSize:15,marginBottom:0,flex:1};
+
+  const delLabel = confirm==="bulk"
+    ? `${selected.size} document${selected.size>1?"s":""}`
+    : `le document ${(invoices||[]).find(i=>i.id===confirm)?.number||""}`;
+
+  return (
+    <div>
+      {confirm&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"#1C1F2A",border:"1px solid #EF4444",borderRadius:14,padding:"28px 32px",maxWidth:360,width:"90%",textAlign:"center"}}>
+            <div style={{fontSize:32,marginBottom:10}}>🗑️</div>
+            <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:20,letterSpacing:2,color:"#EEF0F7",marginBottom:8}}>Confirmer la suppression</div>
+            <div style={{fontSize:13,color:"#7A7F9A",marginBottom:16}}>Supprimer définitivement {delLabel} ?</div>
+            <div style={{background:"#EF444415",border:"1px solid #EF444430",borderRadius:7,padding:"8px",marginBottom:20,fontSize:11,color:"#EF4444"}}>⚠️ Action irréversible</div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setConfirm(null)} style={{flex:1,padding:"10px",borderRadius:8,border:"1px solid #262938",background:"#12141C",color:"#EEF0F7",cursor:"pointer",fontWeight:700}}>Annuler</button>
+              <button onClick={doDelete} style={{flex:1,padding:"10px",borderRadius:8,border:"none",background:"#EF4444",color:"#fff",cursor:"pointer",fontWeight:700}}>✕ Supprimer</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={cs}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+          <div style={bb}>Documents payés / en retard ({paid.length})</div>
+          {selected.size>0&&(
+            <button onClick={()=>setConfirm("bulk")} style={{background:"#EF444420",border:"1px solid #EF444450",borderRadius:7,color:"#EF4444",cursor:"pointer",padding:"6px 14px",fontSize:12,fontWeight:700}}>
+              🗑️ Supprimer {selected.size} sélectionné{selected.size>1?"s":""}
+            </button>
+          )}
+        </div>
+
+        {paid.length===0?(
+          <div style={{textAlign:"center",padding:"24px",color:"#7A7F9A",fontSize:13}}>Aucun document payé ou en retard</div>
+        ):(<>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8,padding:"6px 12px",borderBottom:"1px solid #262938"}}>
+            <input type="checkbox" checked={allChecked} onChange={toggleAll} style={{width:15,height:15,cursor:"pointer",accentColor:"#F5C518"}}/>
+            <span style={{fontSize:11,color:"#7A7F9A",fontWeight:700}}>{allChecked?"Tout désélectionner":"Tout sélectionner"} ({paid.length})</span>
+          </div>
+          {paid.map(inv=>{
+            const client=(clients||[]).find(c=>c.id===inv.clientId);
+            const ttc=(inv.items||[]).reduce((s,it)=>s+it.qty*it.unitPrice,0)*(1+(Number(settings?.tvaRate)||20)/100);
+            const checked=selected.has(inv.id);
+            const isPaid=inv.status==="paid";
+            return(
+              <div key={inv.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:6,background:checked?"#EF444412":"#12141C",borderRadius:8,padding:"9px 12px",border:`1px solid ${checked?"#EF444330":"#1C1F2A"}`}}>
+                <input type="checkbox" checked={checked} onChange={()=>toggleOne(inv.id)} style={{width:15,height:15,cursor:"pointer",accentColor:"#F5C518",flexShrink:0}}/>
+                <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:13,color:accent,minWidth:90}}>{inv.number}</div>
+                <div style={{flex:1,fontSize:12,color:"#EEF0F7",fontWeight:600}}>{client?.name||"—"}</div>
+                <div style={{fontSize:11,color:isPaid?"#22C55E":"#F97316",flexShrink:0,fontWeight:700}}>{isPaid?"✅ Payée":"⚠️ En retard"}</div>
+                <div style={{fontSize:11,color:"#7A7F9A",flexShrink:0}}>{inv.date}</div>
+                <div style={{fontWeight:700,fontSize:13,color:"#EEF0F7",minWidth:80,textAlign:"right",flexShrink:0}}>{fmt(ttc)}</div>
+                <button onClick={()=>setConfirm(inv.id)} style={{background:"#EF444420",border:"1px solid #EF444440",borderRadius:6,color:"#EF4444",cursor:"pointer",padding:"4px 9px",fontSize:12,fontWeight:700,flexShrink:0}}>🗑️</button>
+              </div>
+            );
+          })}
+        </>)}
+      </div>
+      <div style={{fontSize:11,color:"#7A7F9A",background:"#1C1F2A",borderRadius:8,padding:"10px 14px",border:"1px solid #262938"}}>
+        💡 Cochez les documents à supprimer puis cliquez <strong style={{color:"#EF4444"}}>Supprimer X sélectionnés</strong>, ou utilisez 🗑️ par ligne. Action irréversible.
+      </div>
     </div>
   );
 }
@@ -3369,7 +3531,7 @@ function ModelRow({ modele, data, seuil }) {
           {couleurs.length>10&&<span style={{fontSize:9,color:"#7A7F9A"}}>+{couleurs.length-10}</span>}
         </div>
         <span style={{fontSize:11,color:"#7A7F9A",flexShrink:0}}>{couleurs.length} coul.</span>
-        <span style={{fontFamily:"'Bebas Neue',cursive",fontSize:19,color:"#F5B942",minWidth:36,textAlign:"right"}}>{totalStock}</span>
+        <span style={{fontFamily:"'Bebas Neue',cursive",fontSize:19,color:"#F5C518",minWidth:36,textAlign:"right"}}>{totalStock}</span>
         {ruptures>0&&<span style={{fontSize:9,background:"#EF444425",color:"#EF4444",borderRadius:4,padding:"1px 6px",fontWeight:700,flexShrink:0}}>{ruptures}✕</span>}
         {bas>0&&<span style={{fontSize:9,background:"#F59E0B25",color:"#F59E0B",borderRadius:4,padding:"1px 6px",fontWeight:700,flexShrink:0}}>{bas}⚠️</span>}
         <span style={{color:"#7A7F9A",fontSize:11,flexShrink:0}}>{open?"▲":"▼"}</span>
@@ -3472,7 +3634,7 @@ function GenrePanel({ genreId, label, icon, seuilInit={bas:10,ruptureTaille:true
     <div style={{maxWidth:560,margin:"0 auto",paddingTop:32}}>
       <div style={{textAlign:"center",marginBottom:28}}>
         <div style={{fontSize:44,marginBottom:8}}>{icon}</div>
-        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:22,letterSpacing:2,color:"#F5B942"}}>Connecter {label}</div>
+        <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:22,letterSpacing:2,color:"#F5C518"}}>Connecter {label}</div>
         <div style={{fontSize:12,color:"#7A7F9A",marginTop:4}}>Synchronisation auto toutes les 5 minutes</div>
       </div>
       <div style={cs}>
@@ -3492,7 +3654,7 @@ function GenrePanel({ genreId, label, icon, seuilInit={bas:10,ruptureTaille:true
           {showSetup&&<button onClick={()=>setShowSetup(false)} style={{flex:1,padding:"9px",borderRadius:7,border:"1px solid #262938",background:"#12141C",color:"#7A7F9A",cursor:"pointer",fontWeight:700,fontSize:12}}>Annuler</button>}
           <button onClick={async()=>{ const ok=await doFetch(tmpUrl); if(ok){setUrl(tmpUrl);setShowSetup(false);setTmpUrl("");} }}
             disabled={loading||!tmpUrl}
-            style={{flex:2,padding:"10px",borderRadius:7,border:"none",background:loading||!tmpUrl?"#3B4060":"#F5B942",color:"#111",cursor:loading||!tmpUrl?"default":"pointer",fontWeight:700,fontSize:13,fontFamily:"'Bebas Neue',cursive",letterSpacing:1}}>
+            style={{flex:2,padding:"10px",borderRadius:7,border:"none",background:loading||!tmpUrl?"#3B4060":"#F5C518",color:"#111",cursor:loading||!tmpUrl?"default":"pointer",fontWeight:700,fontSize:13,fontFamily:"'Bebas Neue',cursive",letterSpacing:1}}>
             {loading?"⏳ Connexion…":"✓ Connecter"}
           </button>
         </div>
@@ -3522,7 +3684,7 @@ function GenrePanel({ genreId, label, icon, seuilInit={bas:10,ruptureTaille:true
       {/* KPI */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
         {[
-          {l:"Pièces en stock", v:totalPieces, c:"#F5B942", i:"📦"},
+          {l:"Pièces en stock", v:totalPieces, c:"#F5C518", i:"📦"},
           {l:"Modèles en rupture", v:nRupture, c:"#EF4444", i:"🚨"},
           {l:"Modèles stock bas", v:nBas, c:"#F59E0B", i:"⚠️"},
         ].map(k=>(
@@ -3538,7 +3700,7 @@ function GenrePanel({ genreId, label, icon, seuilInit={bas:10,ruptureTaille:true
         <input style={{...inp,flex:1,minWidth:160}} placeholder="🔍 Modèle ou couleur…" value={search} onChange={e=>setSearch(e.target.value)}/>
         <div style={{display:"flex",borderRadius:7,overflow:"hidden",border:"1px solid #262938"}}>
           {[["tous","Tous"],["rupture","🚨"],["bas","⚠️"],["ok","✅"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setFilterStatus(v)} style={{padding:"6px 12px",border:"none",cursor:"pointer",background:filterStatus===v?"#F5B942":"#1C1F2A",color:filterStatus===v?"#111":"#7A7F9A",fontSize:12,fontWeight:700}}>{l}</button>
+            <button key={v} onClick={()=>setFilterStatus(v)} style={{padding:"6px 12px",border:"none",cursor:"pointer",background:filterStatus===v?"#F5C518":"#1C1F2A",color:filterStatus===v?"#111":"#7A7F9A",fontSize:12,fontWeight:700}}>{l}</button>
           ))}
         </div>
         <span style={{fontSize:11,color:"#7A7F9A"}}>{filtered.length} modèle{filtered.length!==1?"s":""}</span>
@@ -3590,7 +3752,7 @@ function PieChart({ data, size=200 }) {
         </g>
       ))}
       {/* Centre */}
-      <text x={cx} y={cy-8} textAnchor="middle" fill="#F5B942" fontSize={18} fontFamily="'Bebas Neue',cursive" letterSpacing="1">TOTAL</text>
+      <text x={cx} y={cy-8} textAnchor="middle" fill="#F5C518" fontSize={18} fontFamily="'Bebas Neue',cursive" letterSpacing="1">TOTAL</text>
       <text x={cx} y={cy+10} textAnchor="middle" fill="#EEF0F7" fontSize={13} fontWeight="700">{total.toLocaleString("fr-FR")}</text>
       <text x={cx} y={cy+26} textAnchor="middle" fill="#7A7F9A" fontSize={9}>pièces</text>
     </svg>
@@ -3629,14 +3791,14 @@ function DashboardGlobal({ stockByGenre, stockSeuils={} }) {
   const maxPieces = Math.max(...resolved.map(g=>g.pieces));
 
   const cs = {background:"#1C1F2A",border:"1px solid #262938",borderRadius:12,padding:20};
-  const bb = {fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5,color:"#F5B942",fontSize:15,marginBottom:14};
+  const bb = {fontFamily:"'Bebas Neue',cursive",letterSpacing:1.5,color:"#F5C518",fontSize:15,marginBottom:14};
 
   const anyDemo = resolved.some(g=>g.isDemo);
 
   return(
     <div>
       {anyDemo&&(
-        <div style={{background:"#F5B94215",border:"1px solid #F5B94240",borderRadius:8,padding:"8px 14px",marginBottom:16,fontSize:11,color:"#F5B942",display:"flex",alignItems:"center",gap:8}}>
+        <div style={{background:"#F5C51815",border:"1px solid #F5C51840",borderRadius:8,padding:"8px 14px",marginBottom:16,fontSize:11,color:"#F5C518",display:"flex",alignItems:"center",gap:8}}>
           <span>⚡</span>
           <span>Certains genres utilisent des données de démonstration. Connectez vos Google Sheets dans chaque onglet pour afficher vos données réelles.</span>
         </div>
@@ -3645,7 +3807,7 @@ function DashboardGlobal({ stockByGenre, stockSeuils={} }) {
       {/* KPI globaux */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
         {[
-          {l:"Pièces totales",  v:totalPieces.toLocaleString("fr-FR"),   c:"#F5B942", i:"📦"},
+          {l:"Pièces totales",  v:totalPieces.toLocaleString("fr-FR"),   c:"#F5C518", i:"📦"},
           {l:"Valeur du stock", v:totalValeur.toLocaleString("fr-FR",{minimumFractionDigits:2})+" €", c:"#22C55E", i:"💶"},
           {l:"Ruptures",        v:totalRupture, c:"#EF4444", i:"🚨"},
           {l:"Stock bas",       v:totalBas,     c:"#F59E0B", i:"⚠️"},
@@ -3750,10 +3912,10 @@ function StockModule({ stockSeuils={} }) {
         {tabs.map(t=>(
           <button key={t.id} onClick={()=>setActiveGenre(t.id)} style={{
             padding:"10px 20px",borderRadius:"8px 8px 0 0",border:"none",cursor:"pointer",
-            background:activeGenre===t.id?"#F5B942":"#1C1F2A",
+            background:activeGenre===t.id?"#F5C518":"#1C1F2A",
             color:activeGenre===t.id?"#111":"#7A7F9A",
             fontFamily:"'Bebas Neue',cursive",fontSize:15,letterSpacing:1.5,
-            borderBottom:activeGenre===t.id?"2px solid #F5B942":"2px solid transparent",
+            borderBottom:activeGenre===t.id?"2px solid #F5C518":"2px solid transparent",
             marginBottom:-2,transition:"all .15s",
           }}>{t.icon} {t.label}</button>
         ))}
@@ -3838,7 +4000,7 @@ function LoginScreen({ onSuccess, appCode }) {
           <div style={{fontSize:12,color:"#EF4444",marginBottom:12,fontWeight:700}}>
             Code incorrect {attempts>=2?`— encore ${3-attempts} essai${3-attempts>1?"s":""}`:""}</div>
         ):<div style={{height:24,marginBottom:8}}/>}
-        <button onClick={tryLogin} disabled={blocked||!input} style={{width:"100%",padding:"12px",borderRadius:9,border:"none",background:blocked||!input?"#3B4060":"#F5B942",color:blocked||!input?"#7A7F9A":"#111",fontFamily:"'Bebas Neue',cursive",fontSize:16,letterSpacing:1.5,cursor:blocked||!input?"default":"pointer",transition:"all .15s"}}>
+        <button onClick={tryLogin} disabled={blocked||!input} style={{width:"100%",padding:"12px",borderRadius:9,border:"none",background:blocked||!input?"#3B4060":"#F5C518",color:blocked||!input?"#7A7F9A":"#111",fontFamily:"'Bebas Neue',cursive",fontSize:16,letterSpacing:1.5,cursor:blocked||!input?"default":"pointer",transition:"all .15s"}}>
           {blocked?`Bloqué (${countdown}s)`:"Connexion →"}
         </button>
 
@@ -3893,9 +4055,9 @@ export default function App(){
 
   if (!settingsReady) return (
     <div style={{minHeight:"100vh",background:"#111318",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
-      <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:24,letterSpacing:4,color:"#F5B942"}}>The Textile Bar</div>
+      <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:24,letterSpacing:4,color:"#F5C518"}}>The Textile Bar</div>
       <div style={{fontSize:12,color:"#7A7F9A",letterSpacing:2}}>Chargement…</div>
-      <div style={{width:40,height:40,border:"3px solid #23253A",borderTop:"3px solid #F5B942",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+      <div style={{width:40,height:40,border:"3px solid #23253A",borderTop:"3px solid #F5C518",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
@@ -3911,7 +4073,7 @@ export default function App(){
         <div style={{fontSize:12,color:"#7A7F9A",fontWeight:600}}>Studio Pro</div>
         <nav style={{display:"flex",gap:4,marginLeft:"auto",alignItems:"center"}}>
           {[["bat","📋 BAT"],["devis","💰 Devis"],["tarifs","💶 Tarifs"],["stock","📦 Stock"],["params","⚙️ Params"]].map(([id,lbl])=>(
-            <button key={id} onClick={()=>setTab(id)} style={{padding:"7px 18px",borderRadius:8,border:"none",background:tab===id?"#F5B942":"transparent",color:tab===id?"#111":"#7A7F9A",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer"}}>{lbl}</button>
+            <button key={id} onClick={()=>setTab(id)} style={{padding:"7px 18px",borderRadius:8,border:"none",background:tab===id?"#F5C518":"transparent",color:tab===id?"#111":"#7A7F9A",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer"}}>{lbl}</button>
           ))}
           <div style={{width:1,height:20,background:"#23253A",margin:"0 6px"}}/>
           <button onClick={handleLogout} title="Se déconnecter" style={{padding:"6px 14px",borderRadius:8,border:"1px solid #262938",background:"transparent",color:"#7A7F9A",cursor:"pointer",fontSize:12,fontWeight:600}}>🔒 Quitter</button>

@@ -1955,10 +1955,8 @@ function useLocalStorage(key, defaultValue) {
 // ══════════════════════════════════════════════════════════════════════════════
 // APP
 // ══════════════════════════════════════════════════════════════════════════════
-function FacturationModule({ settings, batSupports=[], setBatSupports }) {
+function FacturationModule({ settings, batSupports=[], setBatSupports, invoices, setInvoices, clients, setClients }) {
   const [tab, setTab] = useState("invoices");
-  const [invoices, setInvoices] = useLocalStorage("ttb_invoices", defaultInvoices);
-  const [clients,  setClients]  = useLocalStorage("ttb_clients",  defaultClients);
   const [importMsg, setImportMsg] = useState(null);
   const [saveFlash, setSaveFlash] = useState(false);
   const importRef = useRef();
@@ -4072,6 +4070,8 @@ export default function App(){
     marquage:TARIF_MARQUAGE.rows.map(r=>({...r,vals:[...r.vals]})),
     tshirt:TARIF_TSHIRT.rows.map(r=>({...r,vals:[...r.vals]})),
   });
+  const[invoices,setInvoices] = useLocalStorage("ttb_invoices", defaultInvoices);
+  const[clients,setClients]   = useLocalStorage("ttb_clients",  defaultClients);
 
   // ─── Synchronisation Cloud (Vercel Blob) ─────────────────────────────────
   const [cloudLoaded, setCloudLoaded] = useState(false);
@@ -4090,6 +4090,8 @@ export default function App(){
           if (data.supports)     setSupports(data.supports);
           if (data.grids)        setGrids(data.grids);
           if (data.stockSeuils)  setStockSeuils(data.stockSeuils);
+          if (data.invoices)     setInvoices(data.invoices);
+          if (data.clients)      setClients(data.clients);
         }
         setCloudLoaded(true);
       })
@@ -4098,17 +4100,17 @@ export default function App(){
 
   // Sauvegarde effective
   const saveToCloud = useCallback((isLogout = false) => {
-    const payload = { settings, batSupports, markTypes, supports, grids, stockSeuils };
+    const payload = { settings, batSupports, markTypes, supports, grids, stockSeuils, invoices, clients };
     setSyncStatus("saving");
     return fetch("/api/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      keepalive: isLogout, // assure la requête même en cas de fermeture
+      keepalive: isLogout,
     })
       .then(() => setSyncStatus("saved"))
       .catch(() => setSyncStatus("error"));
-  }, [settings, batSupports, markTypes, supports, grids, stockSeuils]);
+  }, [settings, batSupports, markTypes, supports, grids, stockSeuils, invoices, clients]);
 
   // Auto-save debounce 3 secondes après chaque modification
   useEffect(() => {
@@ -4117,7 +4119,7 @@ export default function App(){
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => saveToCloud(), 3000);
     return () => clearTimeout(saveTimerRef.current);
-  }, [settings, batSupports, markTypes, supports, grids, stockSeuils, cloudLoaded]);
+  }, [settings, batSupports, markTypes, supports, grids, stockSeuils, invoices, clients, cloudLoaded]);
 
   // Sauvegarde à la déconnexion
   const handleLogout = () => {
@@ -4163,7 +4165,7 @@ export default function App(){
       </header>
       <main style={{flex:1,padding:"24px 28px",maxWidth:1300,margin:"0 auto",width:"100%",boxSizing:"border-box"}}>
         {tab==="bat"&&<BATModule onSendToDevis={()=>setTab("devis")} batSupports={batSupports} supports={supports}/>}
-        {tab==="devis"&&<FacturationModule settings={settings} batSupports={batSupports} setBatSupports={setBatSupports}/>}
+        {tab==="devis"&&<FacturationModule settings={settings} batSupports={batSupports} setBatSupports={setBatSupports} invoices={invoices} setInvoices={setInvoices} clients={clients} setClients={setClients}/>}
         {tab==="tarifs"&&<TarifsModule markTypes={markTypes} supports={supports} grids={grids}/>}
         {tab==="stock"&&<StockModule stockSeuils={stockSeuils}/>}
         {tab==="params"&&<ParamsModule markTypes={markTypes} setMarkTypes={setMarkTypes} supports={supports} setSupports={setSupports} grids={grids} setGrids={setGrids} settings={settings} setBatSupports={setBatSupports} setSettings={setSettings} batSupports={batSupports} stockSeuils={stockSeuils} setStockSeuils={setStockSeuils} appCode={appCode} setAppCode={setAppCode}/>}

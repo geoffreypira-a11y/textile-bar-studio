@@ -2719,7 +2719,7 @@ function AccessCodeSection({ appCode, setAppCode }) {
   );
 }
 
-function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrids,settings,setSettings,batSupports=[],setBatSupports,stockSeuils={},setStockSeuils,appCode,setAppCode}){
+function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrids,settings,setSettings,batSupports=[],setBatSupports,stockSeuils={},setStockSeuils,appCode,setAppCode,invoices=[],setInvoices,clients=[]}){
   const[unlocked,setUnlocked]=useState(false);
   const[section,setSection]=useState("marquage_types");
   const[activeGrid,setActiveGrid]=useState("broderie");
@@ -3356,17 +3356,14 @@ function ParamsModule({markTypes,setMarkTypes,supports,setSupports,grids,setGrid
       )}
 
       {section==="factures_payees"&&(
-        <PaidInvoicesAdmin/>
+        <PaidInvoicesAdmin invoices={invoices} setInvoices={setInvoices} clients={clients} settings={settings}/>
       )}
 
     </div>
   );
 }
 
-function PaidInvoicesAdmin() {
-  const [invoices, setInvoices] = useLocalStorage("ttb_invoices", []);
-  const [clients]               = useLocalStorage("ttb_clients",  []);
-  const [settings]              = useLocalStorage("ttb_settings", {});
+function PaidInvoicesAdmin({ invoices, setInvoices, clients, settings }) {
   const [selected, setSelected] = useState(new Set());
   const [confirm, setConfirm]   = useState(null); // id ou "bulk"
 
@@ -4181,7 +4178,7 @@ export default function App(){
         {tab==="devis"&&<FacturationModule settings={settings} batSupports={batSupports} setBatSupports={setBatSupports} invoices={invoices} setInvoices={setInvoices} clients={clients} setClients={setClients}/>}
         {tab==="tarifs"&&<TarifsModule markTypes={markTypes} supports={supports} grids={grids}/>}
         {tab==="stock"&&<StockModule stockSeuils={stockSeuils}/>}
-        {tab==="params"&&<ParamsModule markTypes={markTypes} setMarkTypes={setMarkTypes} supports={supports} setSupports={setSupports} grids={grids} setGrids={setGrids} settings={settings} setBatSupports={setBatSupports} setSettings={setSettings} batSupports={batSupports} stockSeuils={stockSeuils} setStockSeuils={setStockSeuils} appCode={appCode} setAppCode={setAppCode}/>}
+        {tab==="params"&&<ParamsModule markTypes={markTypes} setMarkTypes={setMarkTypes} supports={supports} setSupports={setSupports} grids={grids} setGrids={setGrids} settings={settings} setBatSupports={setBatSupports} setSettings={setSettings} batSupports={batSupports} stockSeuils={stockSeuils} setStockSeuils={setStockSeuils} appCode={appCode} setAppCode={setAppCode} invoices={invoices} setInvoices={setInvoices} clients={clients}/>}
       </main>
     </div>
   );

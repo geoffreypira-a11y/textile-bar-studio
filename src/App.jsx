@@ -3471,20 +3471,38 @@ function parseCsvToStock(text) {
   );
   if (lines.length < 2) return {};
   const h = lines[0].map(x => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g,"_"));
+
   const rows = lines.slice(1).filter(r => r.some(c => c)).map(row => {
     const o = {};
     h.forEach((k,i) => o[k] = row[i]||"");
-    const qty   = parseInt(o.quantite??o.quantity??o.qty??o.stock??o.qte??0)||0;
-    const prix  = parseFloat((o.prix??o.price??o.pu??"0").replace(",","."))||0;
-    const ref_couleur = o.ref_couleur??o.reference_couleur??o.refcouleur??"";
-    const ref_full    = o.ref_full??o.sku??o.reference??ref_couleur;
-    const taille      = (ref_full.split("_").pop()||"").toUpperCase();
-    // modele = tout sauf le dernier segment "_COULEUR"
-    const parts = ref_couleur.split("_");
-    const couleur = parts[parts.length-1]?.toUpperCase()||"?";
-    const modele  = parts.slice(0,-1).join("_")||ref_couleur;
+
+    // Quantité — supporte : nbr_de_piece, quantite, qty, stock, qte, quantity
+    const qty = parseInt(
+      o.nbr_de_piece ?? o.nbr_pieces ?? o.nbre_de_piece ?? o.nbre_pieces ??
+      o.quantite ?? o.quantity ?? o.qty ?? o.stock ?? o.qte ?? "0"
+    ) || 0;
+
+    // Prix — supporte : prix_unitaire, prix_unit, prix, price, pu
+    const prixRaw = (
+      o.prix_unitaire ?? o.prix_unit ?? o.pu ?? o.prix ?? o.price ?? "0"
+    ).replace(",",".");
+    const prix = parseFloat(prixRaw) || 0;
+
+    // Désignation — supporte : designation_couleur_taille, designation, ref_full, sku, reference
+    const designation = (
+      o.designation_couleur_taille ?? o.designation ?? o.ref_full ?? o.sku ?? o.reference ?? ""
+    ).toUpperCase().trim();
+
+    // Parser la désignation : format MODELE_COULEUR_TAILLE ou MODELE COULEUR TAILLE
+    let parts = designation.includes("_") ? designation.split("_") : designation.split(" ");
+    parts = parts.filter(p => p);
+
+    const taille  = parts.length >= 2 ? parts[parts.length-1] : "?";
+    const couleur = parts.length >= 3 ? parts[parts.length-2] : (parts[1] || "?");
+    const modele  = parts.slice(0, Math.max(1, parts.length-2)).join("_") || designation;
+
     return { modele, couleur, taille, qty, prix };
-  });
+  }).filter(r => r.modele && r.qty > 0);
 
   // Grouper modele → couleur → tailles
   const result = {};
@@ -3660,7 +3678,7 @@ function GenrePanel({ genreId, label, icon, seuilInit={bas:10,ruptureTaille:true
           3. Collez le lien ci-dessous
         </div>
         <div style={{fontSize:11,color:"#333333",marginBottom:12,padding:"8px 10px",background:"#111111",borderRadius:6}}>
-          💡 Colonnes attendues : <code>ref_full · ref_couleur · quantite · prix</code>
+          💡 Colonnes attendues : <code>DESIGNATION_COULEUR_TAILLE · NBR DE PIECE · PRIX UNITAIRE</code>
         </div>
         <input style={{...inp,width:"100%",boxSizing:"border-box",marginBottom:10}}
           placeholder="https://docs.google.com/spreadsheets/d/..."

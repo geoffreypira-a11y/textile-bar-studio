@@ -13,7 +13,7 @@ module.exports = async function handler(req, res) {
 
     if (!blobs.length) return res.status(200).json(null);
 
-    const r = await fetch(blobs[0].downloadUrl);
+    const r = await fetch(blobs[0].url);
     if (!r.ok) return res.status(200).json(null);
 
     return res.status(200).json(await r.json());

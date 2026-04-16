@@ -36,7 +36,7 @@ module.exports = async function handler(req, res) {
 
     // Sauvegarder
     await put("studio-data.json", content, {
-      access: "private",
+      access: "public",
       token,
       contentType: "application/json",
       addRandomSuffix: false,

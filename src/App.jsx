@@ -3506,6 +3506,11 @@ function parseCsvToStock(text) {
 
 function toCsvUrl(url) {
   if (!url) return null;
+  // Lien déjà publié en CSV (format /d/e/...pub?...output=csv) — utiliser tel quel
+  if (url.includes("/d/e/") || url.includes("output=csv") || url.includes("format=csv")) {
+    return url;
+  }
+  // Lien classique /d/ID/ — convertir en export CSV
   const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
   if (!m) return null;
   const gid = url.match(/gid=(\d+)/)?.[1]||"0";

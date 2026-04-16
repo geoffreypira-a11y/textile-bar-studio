@@ -1922,34 +1922,24 @@ function SettingsTab({ settings, setSettings }) {
 // HOOK PERSISTANCE LOCALSTORAGE
 // ══════════════════════════════════════════════════════════════════════════════
 function useLocalStorage(key, defaultValue) {
-  const [value, setValue] = useState(defaultValue);
-  const [ready, setReady] = useState(false);
-  const readyRef = useRef(false);
-
-  // Chargement initial depuis window.storage
-  useEffect(() => {
-    if (!window.storage) { readyRef.current = true; setReady(true); return; }
-    window.storage.get(key).then(res => {
-      if (res?.value != null) {
-        try { setValue(JSON.parse(res.value)); } catch {}
-      }
-      readyRef.current = true;
-      setReady(true);
-    }).catch(() => { readyRef.current = true; setReady(true); });
-  }, []); // eslint-disable-line
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored !== null ? JSON.parse(stored) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  });
 
   const setStored = (newVal) => {
     setValue(prev => {
       const next = typeof newVal === "function" ? newVal(prev) : newVal;
-      // Sauvegarder dès que prêt
-      if (readyRef.current && window.storage) {
-        window.storage.set(key, JSON.stringify(next)).catch(()=>{});
-      }
+      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
       return next;
     });
   };
 
-  return [value, setStored, ready];
+  return [value, setStored, true];
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

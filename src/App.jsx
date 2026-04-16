@@ -4090,7 +4090,18 @@ export default function App(){
 
   // Sauvegarde effective
   const saveToCloud = useCallback((isLogout = false) => {
-    const payload = { settings, batSupports, markTypes, supports, grids, stockSeuils, invoices, clients };
+    // Exclure les images base64 du payload (trop lourdes, limite Vercel 4.5MB)
+    // Les masques/shadows des supports restent en localStorage uniquement
+    const prepBatSupports = (batSupports || []).map(({ masks, shadows, ...rest }) => rest);
+    const prepSettings = { ...settings };
+    if (prepSettings.logo?.startsWith?.("data:")) prepSettings.logo = null;
+
+    const payload = {
+      settings: prepSettings,
+      batSupports: prepBatSupports,
+      markTypes, supports, grids, stockSeuils, invoices, clients,
+    };
+
     setSyncStatus("saving");
     return fetch("/api/save", {
       method: "POST",

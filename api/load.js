@@ -1,7 +1,7 @@
 const { list } = require("@vercel/blob");
 
 module.exports = async function handler(req, res) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  const token = process.env.BLOB1_READ_WRITE_TOKEN;
   if (!token) return res.status(500).json({ error: "Token manquant" });
 
   try {

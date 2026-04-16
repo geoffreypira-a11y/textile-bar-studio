@@ -4117,7 +4117,9 @@ export default function App(){
     })
       .then(() => {
         setSyncStatus("saved");
-        try { localStorage.setItem("ttb_savedAt", new Date().toISOString()); } catch {}
+        const now = new Date();
+        setLastSyncTime(now);
+        try { localStorage.setItem("ttb_savedAt", now.toISOString()); } catch {}
       })
       .catch(() => setSyncStatus("error"));
   }, [settings, batSupports, markTypes, supports, grids, stockSeuils, invoices, clients]);
@@ -4146,6 +4148,22 @@ export default function App(){
                       : syncStatus === "error"  ? "⚠️ Sync"
                       : null;
 
+  const [lastSyncTime, setLastSyncTime] = useState(() => {
+    try { const s = localStorage.getItem("ttb_savedAt"); return s ? new Date(s) : null; } catch { return null; }
+  });
+
+  const fmtLastSync = (d) => {
+    if (!d) return null;
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    const yesterday = new Date(now); yesterday.setDate(now.getDate()-1);
+    const isYesterday = d.toDateString() === yesterday.toDateString();
+    const hms = d.toLocaleTimeString("fr-FR", {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+    if (isToday)     return `Aujourd'hui ${hms}`;
+    if (isYesterday) return `Hier ${hms}`;
+    return `${d.toLocaleDateString("fr-FR")} ${hms}`;
+  };
+
   if (!settingsReady || !cloudLoaded) return (
       <div style={{minHeight:"100vh",background:"#111111",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:16}}>
       <div style={{fontFamily:"'Bebas Neue',cursive",fontSize:24,letterSpacing:4,color:"#F5C518"}}>The Textile Bar</div>
@@ -4165,6 +4183,16 @@ export default function App(){
         <div style={{width:1,height:24,background:"#222222"}}/>
         <div style={{fontSize:12,color:"#888888",fontWeight:600}}>Studio Pro</div>
         {syncIndicator && <div style={{fontSize:10,color:syncStatus==="error"?"#EF4444":syncStatus==="saved"?"#22C55E":"#888888",marginLeft:4}}>{syncIndicator}</div>}
+        {lastSyncTime && syncStatus !== "saving" && (
+          <div style={{fontSize:9,color:"#555555",marginLeft:4,whiteSpace:"nowrap"}}>
+            {fmtLastSync(lastSyncTime)}
+          </div>
+        )}
+        <button
+          onClick={() => window.location.reload()}
+          title="Actualiser depuis le cloud"
+          style={{marginLeft:6,background:"transparent",border:"1px solid #333333",borderRadius:6,color:"#888888",cursor:"pointer",fontSize:14,padding:"2px 7px",lineHeight:1}}
+        >🔄</button>
         <nav style={{display:"flex",gap:4,marginLeft:"auto",alignItems:"center"}}>
           {[["bat","📋 BAT"],["devis","💰 Devis"],["tarifs","💶 Tarifs"],["stock","📦 Stock"],["params","⚙️ Params"]].map(([id,lbl])=>(
             <button key={id} onClick={()=>setTab(id)} style={{padding:"7px 18px",borderRadius:8,border:"none",background:tab===id?"#F5C518":"transparent",color:tab===id?"#111":"#888888",fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer"}}>{lbl}</button>

@@ -4068,20 +4068,29 @@ export default function App(){
   const [syncStatus, setSyncStatus]   = useState("idle"); // idle | saving | saved | error
   const saveTimerRef = useRef(null);
 
-  // Chargement au démarrage
+  // Chargement au démarrage — le cloud prend TOUJOURS priorité sur le localStorage
   useEffect(() => {
     fetch("/api/load")
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data) {
-          if (data.settings)     setSettings(data.settings);
-          if (data.batSupports)  setBatSupports(data.batSupports);
-          if (data.markTypes)    setMarkTypes(data.markTypes);
-          if (data.supports)     setSupports(data.supports);
-          if (data.grids)        setGrids(data.grids);
-          if (data.stockSeuils)  setStockSeuils(data.stockSeuils);
-          if (data.invoices)     setInvoices(data.invoices);
-          if (data.clients)      setClients(data.clients);
+          // Comparer la date de sauvegarde cloud vs localStorage
+          const cloudDate = data.savedAt ? new Date(data.savedAt) : new Date(0);
+          const localDate = (() => { try { return new Date(localStorage.getItem("ttb_savedAt") || 0); } catch { return new Date(0); } })();
+
+          // Le cloud gagne toujours sauf si le local est plus récent de plus de 30 secondes
+          const localIsNewer = (localDate - cloudDate) > 30000;
+
+          if (!localIsNewer) {
+            if (data.settings)     setSettings(data.settings);
+            if (data.batSupports)  setBatSupports(data.batSupports);
+            if (data.markTypes)    setMarkTypes(data.markTypes);
+            if (data.supports)     setSupports(data.supports);
+            if (data.grids)        setGrids(data.grids);
+            if (data.stockSeuils)  setStockSeuils(data.stockSeuils);
+            if (data.invoices)     setInvoices(data.invoices);
+            if (data.clients)      setClients(data.clients);
+          }
         }
         setCloudLoaded(true);
       })
@@ -4109,7 +4118,10 @@ export default function App(){
       body: JSON.stringify(payload),
       keepalive: isLogout,
     })
-      .then(() => setSyncStatus("saved"))
+      .then(() => {
+        setSyncStatus("saved");
+        try { localStorage.setItem("ttb_savedAt", new Date().toISOString()); } catch {}
+      })
       .catch(() => setSyncStatus("error"));
   }, [settings, batSupports, markTypes, supports, grids, stockSeuils, invoices, clients]);
 

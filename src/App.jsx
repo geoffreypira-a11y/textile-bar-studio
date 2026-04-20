@@ -3606,11 +3606,12 @@ function ModelRow({ modele, data, seuil }) {
   );
 }
 
-function GenrePanel({ genreId, label, icon, seuilInit={bas:10,ruptureTaille:true} }) {
+function GenrePanel({ genreId, label, icon, seuilInit={bas:10,ruptureTaille:true}, stockUrl="", onUrlChange=()=>{}, initialData={}, initialSync=null, onDataChange=()=>{} }) {
   const REFRESH = 5*60*1000;
-  const [url, setUrl]         = useLocalStorage(`ttb_stock_url_${genreId}`, "");
-  const [data, setData]       = useLocalStorage(`ttb_stock_data_${genreId}`, {});
-  const [lastSync, setLastSync] = useLocalStorage(`ttb_stock_sync_${genreId}`, null);
+  const url    = stockUrl;
+  const setUrl = (u) => onUrlChange(u);
+  const [data, setData]         = useState(initialData);
+  const [lastSync, setLastSync] = useState(initialSync);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState("");
   const [showSetup, setShowSetup] = useState(false);
@@ -3631,12 +3632,18 @@ function GenrePanel({ genreId, label, icon, seuilInit={bas:10,ruptureTaille:true
       const text = await res.text();
       const parsed = parseCsvToStock(text);
       if (!Object.keys(parsed).length) throw new Error("Aucune donnée. Vérifiez le partage public du sheet.");
-      setData(parsed); setLastSync(new Date().toISOString()); return true;
+      setData(parsed);
+      const syncTime = new Date().toISOString();
+      setLastSync(syncTime);
+      onDataChange(parsed, syncTime);
+      return true;
     } catch(e) { setError(e.message); return false; }
     finally { setLoading(false); }
   };
 
   useEffect(()=>{ if(url){ doFetch(url); const t=setInterval(()=>doFetch(url),REFRESH); return()=>clearInterval(t); } },[url]);
+  useEffect(()=>{ if(Object.keys(initialData).length) setData(initialData); },[initialData]); // eslint-disable-line
+  useEffect(()=>{ if(initialSync) setLastSync(initialSync); },[initialSync]); // eslint-disable-line
 
   const fmtSync = (iso) => {
     if(!iso)return null;
@@ -3924,7 +3931,7 @@ function DashboardGlobal({ stockByGenre, stockSeuils={} }) {
   );
 }
 
-function StockModule({ stockSeuils={} }) {
+function StockModule({ stockSeuils={}, stockUrls={}, setStockUrls=()=>{}, stockData={}, setStockData=()=>{}, stockSync={}, setStockSync=()=>{} }) {
   const [activeGenre, setActiveGenre] = useLocalStorage("ttb_stock_genre", "dashboard");
 
   const [dataHomme]      = useLocalStorage("ttb_stock_data_homme",      {});
@@ -3957,7 +3964,7 @@ function StockModule({ stockSeuils={} }) {
 
       {activeGenre==="dashboard"
         ? <DashboardGlobal stockByGenre={stockByGenre} stockSeuils={stockSeuils}/>
-        : <GenrePanel key={g.id} genreId={g.id} label={g.label} icon={g.icon} seuilInit={stockSeuils[g.id]||{bas:10,ruptureTaille:true}}/>
+        : <GenrePanel key={g.id} genreId={g.id} label={g.label} icon={g.icon} seuilInit={stockSeuils[g.id]||{bas:10,ruptureTaille:true}} stockUrl={stockUrls[g.id]||""} onUrlChange={u=>setStockUrls(p=>({...p,[g.id]:u}))} initialData={stockData[g.id]||{}} initialSync={stockSync[g.id]||null} onDataChange={(d,s)=>{setStockData(p=>({...p,[g.id]:d}));setStockSync(p=>({...p,[g.id]:s}));}}/>
       }
     </div>
   );
@@ -4082,6 +4089,7 @@ export default function App(){
   });
   const[invoices,setInvoices] = useLocalStorage("ttb_invoices", defaultInvoices);
   const[clients,setClients]   = useLocalStorage("ttb_clients",  defaultClients);
+  const[stockUrls,setStockUrls] = useLocalStorage("ttb_stock_urls", {homme:"",femme:"",enfant:"",accessoire:""});
 
   // ─── Synchronisation Cloud (Vercel Blob) ─────────────────────────────────
   const [cloudLoaded, setCloudLoaded] = useState(false);
@@ -4110,6 +4118,7 @@ export default function App(){
             if (data.stockSeuils)  setStockSeuils(data.stockSeuils);
             if (data.invoices)     setInvoices(data.invoices);
             if (data.clients)      setClients(data.clients);
+            if (data.stockUrls)    setStockUrls(data.stockUrls);
           }
         }
         setCloudLoaded(true);
@@ -4128,7 +4137,7 @@ export default function App(){
     const payload = {
       settings: prepSettings,
       batSupports: prepBatSupports,
-      markTypes, supports, grids, stockSeuils, invoices, clients,
+      markTypes, supports, grids, stockSeuils, invoices, clients, stockUrls,
     };
 
     setSyncStatus("saving");
@@ -4154,7 +4163,7 @@ export default function App(){
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => saveToCloud(), 3000);
     return () => clearTimeout(saveTimerRef.current);
-  }, [settings, batSupports, markTypes, supports, grids, stockSeuils, invoices, clients, cloudLoaded]);
+  }, [settings, batSupports, markTypes, supports, grids, stockSeuils, invoices, clients, stockUrls, cloudLoaded]);
 
   // Sauvegarde à la déconnexion
   const handleLogout = () => {
@@ -4165,7 +4174,29 @@ export default function App(){
     });
   };
 
-  // Indicateur de sync visible dans le header
+  const[stockData,setStockData] = useState({homme:{},femme:{},enfant:{},accessoire:{}});
+  const[stockSync,setStockSync] = useState({homme:null,femme:null,enfant:null,accessoire:null});
+
+  // Préchargement du stock au démarrage — tous les onglets avec une URL configurée
+  useEffect(() => {
+    if (!cloudLoaded) return;
+    const genres = ["homme","femme","enfant","accessoire"];
+    genres.forEach(id => {
+      const url = stockUrls[id];
+      if (!url) return;
+      fetch(url)
+        .then(r => r.ok ? r.text() : null)
+        .then(text => {
+          if (!text) return;
+          const parsed = parseCsvToStock(text);
+          if (Object.keys(parsed).length) {
+            setStockData(p => ({...p, [id]: parsed}));
+            setStockSync(p => ({...p, [id]: new Date().toISOString()}));
+          }
+        })
+        .catch(() => {});
+    });
+  }, [cloudLoaded]); // eslint-disable-line
   const syncIndicator = syncStatus === "saving" ? "💾 Sync…"
                       : syncStatus === "saved"  ? "✅"
                       : syncStatus === "error"  ? "⚠️ Sync"
@@ -4228,7 +4259,7 @@ export default function App(){
         {tab==="bat"&&<BATModule onSendToDevis={()=>setTab("devis")} batSupports={batSupports} supports={supports}/>}
         {tab==="devis"&&<FacturationModule settings={settings} batSupports={batSupports} setBatSupports={setBatSupports} invoices={invoices} setInvoices={setInvoices} clients={clients} setClients={setClients}/>}
         {tab==="tarifs"&&<TarifsModule markTypes={markTypes} supports={supports} grids={grids}/>}
-        {tab==="stock"&&<StockModule stockSeuils={stockSeuils}/>}
+        {tab==="stock"&&<StockModule stockSeuils={stockSeuils} stockUrls={stockUrls} setStockUrls={setStockUrls} stockData={stockData} setStockData={setStockData} stockSync={stockSync} setStockSync={setStockSync}/>}
         {tab==="params"&&<ParamsModule markTypes={markTypes} setMarkTypes={setMarkTypes} supports={supports} setSupports={setSupports} grids={grids} setGrids={setGrids} settings={settings} setBatSupports={setBatSupports} setSettings={setSettings} batSupports={batSupports} stockSeuils={stockSeuils} setStockSeuils={setStockSeuils} appCode={appCode} setAppCode={setAppCode} invoices={invoices} setInvoices={setInvoices} clients={clients}/>}
       </main>
     </div>
